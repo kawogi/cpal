@@ -21,6 +21,20 @@ pub struct InterleavedBuffer<'buffer, T: RawSample> {
 }
 
 impl<'buffer, T: RawSample> InterleavedBuffer<'buffer, T> {
+    pub fn new(
+        samples: &'buffer [T],
+        frame_count: FrameIndex,
+        channel_count: ChannelIndex,
+    ) -> Self {
+        assert_eq!(samples.len(), frame_count * channel_count);
+
+        Self {
+            samples,
+            frame_count,
+            channel_count,
+        }
+    }
+
     fn offset(&self, SampleAddress { channel, frame }: SampleAddress) -> SampleIndex {
         self.channel_count * frame + channel
     }
@@ -262,6 +276,20 @@ pub struct InterleavedBufferMut<'buffer, T: RawSample> {
 }
 
 impl<'buffer, T: RawSample> InterleavedBufferMut<'buffer, T> {
+    pub fn new(
+        samples: &'buffer mut [T],
+        frame_count: FrameIndex,
+        channel_count: ChannelIndex,
+    ) -> Self {
+        assert_eq!(samples.len(), frame_count * channel_count);
+
+        Self {
+            samples,
+            frame_count,
+            channel_count,
+        }
+    }
+
     fn offset(&self, SampleAddress { channel, frame }: SampleAddress) -> SampleIndex {
         self.channel_count * frame + channel
     }

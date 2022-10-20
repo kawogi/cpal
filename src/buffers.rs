@@ -1,4 +1,4 @@
-use std::ops::Index;
+use std::{mem::size_of, ops::Index, slice};
 
 use crate::types::RawSample;
 
@@ -121,6 +121,28 @@ pub struct SampleSlice<'buffer, T: RawSample> {
 impl<'buffer, T: RawSample> SampleSlice<'buffer, T> {
     pub fn new(samples: &'buffer [T]) -> Self {
         Self { samples }
+    }
+
+    /// Helper method to convert a byte slice into a slice of a different type (e.g. a `RawSample`).
+    pub unsafe fn transmute_from_bytes(bytes: &[u8]) -> &[T] {
+        // make sure the buffer will have no dangling bytes after the conversion
+        assert_eq!(bytes.len() % size_of::<T>(), 0);
+        let element_count = bytes.len() / size_of::<T>();
+
+        // transmute &[u8] -> &[T]
+        slice::from_raw_parts(bytes.as_ptr() as *const T, element_count)
+    }
+
+    /// Helper method to convert a mutable byte slice into a slice of a different type (e.g. a `RawSample`).
+    pub unsafe fn transmute_from_bytes_mut(bytes: &mut [u8]) -> &mut [T] {
+        // make sure the buffer will have no dangling bytes after the conversion
+        assert_eq!(bytes.len() % size_of::<T>(), 0);
+        let element_count = bytes.len() / size_of::<T>();
+
+        todo!("FIXME this clones a mutable reference which violates Rust's aliasing rules");
+
+        // transmute &mut [u8] -> &mut [T]
+        slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut T, element_count)
     }
 }
 

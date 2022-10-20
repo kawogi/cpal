@@ -12,6 +12,17 @@ pub struct SeparatedBuffer<'buffer, T: RawSample> {
     frame_count: FrameIndex,
 }
 
+impl<'buffer, T: RawSample> SeparatedBuffer<'buffer, T> {
+    pub fn new(channels: &'buffer [&'buffer [T]], frame_count: FrameIndex) -> Self {
+        assert!(channels.iter().all(|channel| channel.len() == frame_count));
+
+        Self {
+            channels,
+            frame_count,
+        }
+    }
+}
+
 impl<'buffer, T: RawSample> SampleBuffer<T::Primitive> for SeparatedBuffer<'buffer, T> {
     type Frame = SeparatedFrame<'buffer, T>;
     type Frames = SeparatedFrames<'buffer, T>;
@@ -250,6 +261,17 @@ impl<'buffer, T: RawSample> Iterator for SeparatedSamplesSeparated<'buffer, T> {
 pub struct SeparatedBufferMut<'buffer, T: RawSample> {
     channels: &'buffer mut [&'buffer mut [T]],
     frame_count: FrameIndex,
+}
+
+impl<'buffer, T: RawSample> SeparatedBufferMut<'buffer, T> {
+    pub fn new(channels: &'buffer mut [&'buffer mut [T]], frame_count: FrameIndex) -> Self {
+        assert!(channels.iter().all(|channel| channel.len() == frame_count));
+
+        Self {
+            channels,
+            frame_count,
+        }
+    }
 }
 
 impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
