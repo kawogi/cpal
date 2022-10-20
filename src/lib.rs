@@ -161,11 +161,13 @@ use std::convert::TryInto;
 use std::ops::{Div, Mul};
 use std::time::Duration;
 
+mod buffers;
 mod error;
 mod host;
 pub mod platform;
 mod samples_formats;
 pub mod traits;
+mod types;
 
 /// A host's device iterator yielding only *input* devices.
 pub type InputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;
