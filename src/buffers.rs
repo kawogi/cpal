@@ -139,8 +139,6 @@ impl<'buffer, T: RawSample> SampleSlice<'buffer, T> {
         assert_eq!(bytes.len() % size_of::<T>(), 0);
         let element_count = bytes.len() / size_of::<T>();
 
-        todo!("FIXME this clones a mutable reference which violates Rust's aliasing rules");
-
         // transmute &mut [u8] -> &mut [T]
         slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut T, element_count)
     }
