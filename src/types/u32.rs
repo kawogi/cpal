@@ -1,13 +1,40 @@
-use crate::{
-    buffers::{ChannelIndex, FrameIndex, SampleAddress},
-    sample_buffer,
-};
+use std::{fmt::Display, mem};
+
+use crate::{sample_buffer, sized_sample, SampleFormat};
 
 use super::RawSample;
 use dasp_sample::Sample;
 
 pub type Primitive = u32;
 pub const DEFAULT: Primitive = Primitive::EQUILIBRIUM;
+pub const FORMAT: SampleFormat = SampleFormat::U32;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RawFormat {
+    LE,
+    BE,
+}
+
+impl RawFormat {
+    #[inline]
+    #[must_use]
+    pub fn sample_size(self) -> usize {
+        match self {
+            Self::LE => mem::size_of::<LE>(),
+            Self::BE => mem::size_of::<BE>(),
+        }
+    }
+}
+
+impl Display for RawFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            RawFormat::LE => "le",
+            RawFormat::BE => "be",
+        }
+        .fmt(f)
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
@@ -61,4 +88,7 @@ impl RawSample for BE {
     type Primitive = Primitive;
 }
 
+sized_sample!(U32: LE, BE);
 sample_buffer!(LE, BE);
+pub type U32SampleBuffer<'buffer> = SampleBuffer<'buffer>;
+pub type U32SampleBufferMut<'buffer> = SampleBufferMut<'buffer>;

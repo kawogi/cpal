@@ -1,15 +1,48 @@
-use crate::{
-    buffers::{ChannelIndex, FrameIndex, SampleAddress},
-    sample_buffer,
-};
+use std::{fmt::Display, mem};
+
+use crate::{sample_buffer, sized_sample, SampleFormat};
 
 use super::RawSample;
 use dasp_sample::{Sample, U24};
 
 pub type Primitive = U24;
 pub const DEFAULT: Primitive = Primitive::EQUILIBRIUM;
+pub const FORMAT: SampleFormat = SampleFormat::U24;
 // TODO ask author of `dasp_sample` why this couldn't be `u32`
 type Repr = i32;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RawFormat {
+    LE3B,
+    BE3B,
+    LE4B,
+    BE4B,
+}
+
+impl RawFormat {
+    #[inline]
+    #[must_use]
+    pub fn sample_size(self) -> usize {
+        match self {
+            Self::LE3B => mem::size_of::<LE3B>(),
+            Self::BE3B => mem::size_of::<BE3B>(),
+            Self::LE4B => mem::size_of::<LE4B>(),
+            Self::BE4B => mem::size_of::<BE4B>(),
+        }
+    }
+}
+
+impl Display for RawFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            RawFormat::LE3B => "le3b",
+            RawFormat::BE3B => "be3b",
+            RawFormat::LE4B => "le4b",
+            RawFormat::BE4B => "be4b",
+        }
+        .fmt(f)
+    }
+}
 
 /// Bit memory layout: [0..7, 8..15, 16..23]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -155,7 +188,10 @@ impl PartialEq for BE4B {
 
 impl Eq for BE4B {}
 
+sized_sample!(U24: LE3B, BE3B, LE4B, BE4B);
 sample_buffer!(LE3B, BE3B, LE4B, BE4B);
+pub type U24SampleBuffer<'buffer> = SampleBuffer<'buffer>;
+pub type U24SampleBufferMut<'buffer> = SampleBufferMut<'buffer>;
 
 #[cfg(test)]
 mod tests {

@@ -1,64 +1,65 @@
-use crate::{
-    buffers::{ChannelIndex, FrameIndex, SampleAddress},
-    sample_buffer,
-};
+use std::{fmt::Display, mem};
+
+use crate::{sample_buffer, sized_sample, SampleFormat};
 
 use super::RawSample;
 use dasp_sample::Sample;
 
 pub type Primitive = i8;
 pub const DEFAULT: Primitive = Primitive::EQUILIBRIUM;
+pub const FORMAT: SampleFormat = SampleFormat::I8;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RawFormat {
+    NE,
+}
+
+impl RawFormat {
+    #[inline]
+    #[must_use]
+    pub fn sample_size(self) -> usize {
+        match self {
+            Self::NE => mem::size_of::<NE>(),
+        }
+    }
+}
+
+impl Display for RawFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            RawFormat::NE => "ne",
+        }
+        .fmt(f)
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct LE([u8; 1]);
+pub struct NE([u8; 1]);
 
-impl Default for LE {
+impl Default for NE {
     fn default() -> Self {
         Self::from(DEFAULT)
     }
 }
 
-impl From<Primitive> for LE {
+impl From<Primitive> for NE {
     fn from(v: Primitive) -> Self {
         Self(v.to_le_bytes())
     }
 }
 
-impl From<LE> for Primitive {
-    fn from(v: LE) -> Self {
+impl From<NE> for Primitive {
+    fn from(v: NE) -> Self {
         Self::from_le_bytes(v.0)
     }
 }
 
-impl RawSample for LE {
+impl RawSample for NE {
     type Primitive = Primitive;
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct BE([u8; 1]);
-
-impl Default for BE {
-    fn default() -> Self {
-        Self::from(DEFAULT)
-    }
-}
-
-impl From<Primitive> for BE {
-    fn from(v: Primitive) -> Self {
-        Self(v.to_be_bytes())
-    }
-}
-
-impl From<BE> for Primitive {
-    fn from(v: BE) -> Self {
-        Self::from_be_bytes(v.0)
-    }
-}
-
-impl RawSample for BE {
-    type Primitive = Primitive;
-}
-
-sample_buffer!(LE, BE);
+sized_sample!(I8: NE);
+sample_buffer!(NE);
+pub type I8SampleBuffer<'buffer> = SampleBuffer<'buffer>;
+pub type I8SampleBufferMut<'buffer> = SampleBufferMut<'buffer>;
