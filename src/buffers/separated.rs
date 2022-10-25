@@ -2,7 +2,7 @@ use std::ops::{Index, Range};
 
 use itertools::Itertools;
 
-use crate::types::RawSample;
+use crate::{types::RawSample, ChannelCount, FrameCount};
 
 use super::{ChannelIndex, FrameIndex, SampleAddress, SampleBuffer, SampleBufferMut, SampleSlice};
 
@@ -13,8 +13,11 @@ pub struct SeparatedBuffer<'buffer, T: RawSample> {
 }
 
 impl<'buffer, T: RawSample> SeparatedBuffer<'buffer, T> {
-    pub fn new(channels: &'buffer [&'buffer [T]], frame_count: FrameIndex) -> Self {
-        assert!(channels.iter().all(|channel| channel.len() == frame_count));
+    pub fn new(channels: &'buffer [&'buffer [T]], frame_count: FrameCount) -> Self {
+        assert!(FrameCount::try_from(channels.len()).is_ok());
+        assert!(channels
+            .iter()
+            .all(|channel| FrameCount::try_from(channel.len()) == Ok(frame_count)));
 
         Self {
             channels,
@@ -23,7 +26,8 @@ impl<'buffer, T: RawSample> SeparatedBuffer<'buffer, T> {
     }
 }
 
-impl<'buffer, T: RawSample> SampleBuffer<T::Primitive> for SeparatedBuffer<'buffer, T> {
+impl<'buffer, T: RawSample> SampleBuffer for SeparatedBuffer<'buffer, T> {
+    type Item = T::Primitive;
     type Frame = SeparatedFrame<'buffer, T>;
     type Frames = SeparatedFrames<'buffer, T>;
     type Channel = SampleSlice<'buffer, T>;
@@ -52,12 +56,12 @@ impl<'buffer, T: RawSample> SampleBuffer<T::Primitive> for SeparatedBuffer<'buff
         }
     }
 
-    fn channel_count(&self) -> ChannelIndex {
-        self.channels.len()
+    fn channel_count(&self) -> ChannelCount {
+        self.channels.len() as ChannelCount
     }
 
     fn channel(&self, index: super::ChannelIndex) -> Self::Channel {
-        SampleSlice::new(self.channels[index])
+        SampleSlice::new(self.channels[usize::from(index)])
     }
 
     /// Returns an iterator over all channels of this buffer.
@@ -96,7 +100,7 @@ impl<'buffer, T: RawSample> Index<SampleAddress> for SeparatedBuffer<'buffer, T>
     type Output = T;
 
     fn index(&self, SampleAddress { channel, frame }: SampleAddress) -> &Self::Output {
-        &self.channels[channel][frame]
+        &self.channels[usize::from(channel)][frame as usize]
     }
 }
 
@@ -154,14 +158,14 @@ impl<'buffer, T: RawSample> Index<ChannelIndex> for SeparatedFrame<'buffer, T> {
     type Output = T;
 
     fn index(&self, channel_index: ChannelIndex) -> &Self::Output {
-        &self.channels[channel_index][self.frame_index]
+        &self.channels[usize::from(channel_index)][self.frame_index as usize]
     }
 }
 
 /// Iterator over all samples of a single frame
 pub struct SeparatedFrameSamples<'buffer, T: RawSample> {
     channels: std::slice::Iter<'buffer, &'buffer [T]>,
-    index: ChannelIndex,
+    index: FrameIndex,
 }
 
 impl<'frame, 'buffer: 'frame, T: RawSample> Iterator for SeparatedFrameSamples<'buffer, T> {
@@ -170,7 +174,7 @@ impl<'frame, 'buffer: 'frame, T: RawSample> Iterator for SeparatedFrameSamples<'
     fn next(&mut self) -> Option<Self::Item> {
         self.channels
             .next()
-            .map(|&samples| T::Primitive::from(samples[self.index]))
+            .map(|&samples| T::Primitive::from(samples[self.index as usize]))
     }
 }
 
@@ -186,7 +190,7 @@ impl<'buffer, T: RawSample> Iterator for SeparatedSamples<'buffer, T> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some((&head, tail)) = self.channels.split_first() {
             if let Some(sample) = head
-                .get(self.address.frame)
+                .get(self.address.frame as usize)
                 .copied()
                 .map(T::Primitive::from)
             {
@@ -219,10 +223,12 @@ impl<'buffer, T: RawSample> Iterator for SeparatedSamplesInterleaved<'buffer, T>
 
     fn next(&mut self) -> Option<Self::Item> {
         (self.frame_index < self.frame_count).then(|| {
-            let sample = T::Primitive::from(self.channels[self.channel_index][self.frame_index]);
+            let sample = T::Primitive::from(
+                self.channels[usize::from(self.channel_index)][self.frame_index as usize],
+            );
 
             self.channel_index += 1;
-            if self.channel_index == self.channels.len() {
+            if self.channel_index == self.channels.len() as ChannelCount {
                 self.channel_index = 0;
                 self.frame_index += 1;
             }
@@ -243,7 +249,11 @@ impl<'buffer, T: RawSample> Iterator for SeparatedSamplesSeparated<'buffer, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some((&head, tail)) = self.channels.split_first() {
-            if let Some(sample) = head.get(self.frame_index).copied().map(T::Primitive::from) {
+            if let Some(sample) = head
+                .get(self.frame_index as usize)
+                .copied()
+                .map(T::Primitive::from)
+            {
                 self.frame_index += 1;
                 return Some(sample);
             }
@@ -264,8 +274,11 @@ pub struct SeparatedBufferMut<'buffer, T: RawSample> {
 }
 
 impl<'buffer, T: RawSample> SeparatedBufferMut<'buffer, T> {
-    pub fn new(channels: &'buffer mut [&'buffer mut [T]], frame_count: FrameIndex) -> Self {
-        assert!(channels.iter().all(|channel| channel.len() == frame_count));
+    pub fn new(channels: &'buffer mut [&'buffer mut [T]], frame_count: FrameCount) -> Self {
+        assert!(ChannelCount::try_from(channels.len()).is_ok());
+        assert!(channels
+            .iter()
+            .all(|channel| FrameCount::try_from(channel.len()) == Ok(frame_count)));
 
         Self {
             channels,
@@ -274,9 +287,9 @@ impl<'buffer, T: RawSample> SeparatedBufferMut<'buffer, T> {
     }
 }
 
-impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
-    for SeparatedBufferMut<'buffer, T>
-{
+impl<'buffer, T: RawSample> SampleBufferMut for SeparatedBufferMut<'buffer, T> {
+    type Item = T::Primitive;
+
     fn frame_count(&self) -> FrameIndex {
         self.frame_count
     }
@@ -288,7 +301,7 @@ impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
     {
         self.channels
             .iter_mut()
-            .map(|channel| &mut channel[index])
+            .map(|channel| &mut channel[index as usize])
             .zip(frame)
             .for_each(|(sample_out, sample_in)| {
                 *sample_out = T::from(T::Primitive::from(sample_in));
@@ -304,11 +317,13 @@ impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
         frames
             .into_iter()
             .enumerate()
-            .for_each(|(frame_index, frame_in)| self.write_frame(frame_index, frame_in));
+            .for_each(|(frame_index, frame_in)| {
+                self.write_frame(frame_index as FrameIndex, frame_in)
+            });
     }
 
-    fn channel_count(&self) -> ChannelIndex {
-        self.channels.len()
+    fn channel_count(&self) -> ChannelCount {
+        self.channels.len() as ChannelCount
     }
 
     fn write_channel<Channel, Sample>(&mut self, index: ChannelIndex, channel: Channel)
@@ -317,7 +332,7 @@ impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
         T::Primitive: From<Sample>,
     {
         let channel_samples = channel.into_iter().map(T::Primitive::from).map(T::from);
-        self.channels[index]
+        self.channels[usize::from(index)]
             .iter_mut()
             .zip(channel_samples)
             .for_each(|(sample_out, sample_in)| *sample_out = sample_in);
@@ -350,7 +365,7 @@ impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
     ) where
         T::Primitive: From<Sample>,
     {
-        self.channels[channel][frame] = T::from(T::Primitive::from(sample));
+        self.channels[usize::from(channel)][frame as usize] = T::from(T::Primitive::from(sample));
     }
 
     fn write_samples_interleaved<Samples, Sample>(&mut self, samples: Samples)
@@ -358,7 +373,9 @@ impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
         Samples: IntoIterator<Item = Sample>,
         T::Primitive: From<Sample>,
     {
-        let frames = samples.into_iter().chunks(self.channel_count());
+        let frames = samples
+            .into_iter()
+            .chunks(usize::from(self.channel_count()));
         self.write_frames(frames.into_iter());
     }
 
@@ -367,7 +384,7 @@ impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
         Samples: IntoIterator<Item = Sample>,
         T::Primitive: From<Sample>,
     {
-        let channels = samples.into_iter().chunks(self.frame_count);
+        let channels = samples.into_iter().chunks(self.frame_count as usize);
         self.write_channels(channels.into_iter());
     }
 }

@@ -6,7 +6,7 @@ use std::{
 
 use itertools::Itertools;
 
-use crate::types::RawSample;
+use crate::{types::RawSample, ChannelCount, FrameCount};
 
 use super::{
     ChannelIndex, FrameIndex, SampleAddress, SampleBuffer, SampleBufferMut, SampleIndex,
@@ -16,17 +16,20 @@ use super::{
 /// Contains samples in a single buffer grouped by frames.
 pub struct InterleavedBuffer<'buffer, T: RawSample> {
     samples: &'buffer [T],
-    frame_count: FrameIndex,
-    channel_count: ChannelIndex,
+    frame_count: FrameCount,
+    channel_count: ChannelCount,
 }
 
 impl<'buffer, T: RawSample> InterleavedBuffer<'buffer, T> {
     pub fn new(
         samples: &'buffer [T],
-        frame_count: FrameIndex,
-        channel_count: ChannelIndex,
+        frame_count: FrameCount,
+        channel_count: ChannelCount,
     ) -> Self {
-        assert_eq!(samples.len(), frame_count * channel_count);
+        assert_eq!(
+            samples.len(),
+            frame_count as usize * usize::from(channel_count)
+        );
 
         Self {
             samples,
@@ -36,16 +39,17 @@ impl<'buffer, T: RawSample> InterleavedBuffer<'buffer, T> {
     }
 
     fn offset(&self, SampleAddress { channel, frame }: SampleAddress) -> SampleIndex {
-        self.channel_count * frame + channel
+        usize::from(self.channel_count) * frame as usize + usize::from(channel)
     }
 
     fn frame_range(&self, frame_index: FrameIndex) -> Range<SampleIndex> {
-        let start = frame_index * self.channel_count;
-        start..(start + self.channel_count)
+        let start = frame_index as usize * usize::from(self.channel_count);
+        start..(start + usize::from(self.channel_count))
     }
 }
 
-impl<'buffer, T: RawSample> SampleBuffer<T::Primitive> for InterleavedBuffer<'buffer, T> {
+impl<'buffer, T: RawSample> SampleBuffer for InterleavedBuffer<'buffer, T> {
+    type Item = T::Primitive;
     type Frame = SampleSlice<'buffer, T>;
     type Frames = InterleavedFrames<'buffer, T>;
     type Channel = InterleavedChannel<'buffer, T>;
@@ -66,11 +70,11 @@ impl<'buffer, T: RawSample> SampleBuffer<T::Primitive> for InterleavedBuffer<'bu
     /// Since this is an interleaved buffer, this operation is very cheap.
     fn frames(&self) -> Self::Frames {
         InterleavedFrames {
-            frames: self.samples.chunks_exact(self.channel_count),
+            frames: self.samples.chunks_exact(usize::from(self.channel_count)),
         }
     }
 
-    fn channel_count(&self) -> ChannelIndex {
+    fn channel_count(&self) -> ChannelCount {
         self.channel_count
     }
 
@@ -155,7 +159,7 @@ impl<'buffer, T: RawSample> Iterator for InterleavedChannels<'buffer, T> {
 /// Provides access to all samples of a single channel
 pub struct InterleavedChannel<'buffer, T: RawSample> {
     samples: &'buffer [T],
-    channel_count: ChannelIndex,
+    channel_count: ChannelCount,
     channel_index: ChannelIndex,
 }
 
@@ -168,8 +172,8 @@ impl<'buffer, T: RawSample> IntoIterator for InterleavedChannel<'buffer, T> {
             samples: self
                 .samples
                 .iter()
-                .skip(self.channel_index)
-                .step_by(self.channel_count),
+                .skip(usize::from(self.channel_index))
+                .step_by(usize::from(self.channel_count)),
         }
     }
 }
@@ -178,7 +182,8 @@ impl<'buffer, T: RawSample> Index<FrameIndex> for InterleavedChannel<'buffer, T>
     type Output = T;
 
     fn index(&self, frame_index: FrameIndex) -> &Self::Output {
-        &self.samples[self.channel_index * self.channel_count + frame_index]
+        &self.samples[usize::from(self.channel_index) * usize::from(self.channel_count)
+            + frame_index as usize]
     }
 }
 
@@ -202,7 +207,7 @@ pub struct InterleavedSamples<'buffer, T: RawSample> {
 }
 
 impl<'buffer, T: RawSample> InterleavedSamples<'buffer, T> {
-    fn new(samples: &'buffer [T], frame_count: FrameIndex, channel_count: ChannelIndex) -> Self {
+    fn new(samples: &'buffer [T], frame_count: FrameIndex, channel_count: ChannelCount) -> Self {
         Self {
             addresses: (0..frame_count).zip((0..channel_count).cycle()),
             samples: samples.iter(),
@@ -240,7 +245,7 @@ impl<'buffer, T: RawSample> Iterator for InterleavedSamplesInterleaved<'buffer, 
 /// Iterator over all samples in separated order
 pub struct InterleavedSamplesSeparated<'buffer, T: RawSample> {
     samples: &'buffer [T],
-    channel_count: ChannelIndex,
+    channel_count: ChannelCount,
     channel_index: ChannelIndex,
     sample_index: SampleIndex,
 }
@@ -256,12 +261,12 @@ impl<'buffer, T: RawSample> Iterator for InterleavedSamplesSeparated<'buffer, T>
                 .copied()
                 .map(T::Primitive::from)
             {
-                self.sample_index += self.channel_count;
+                self.sample_index += usize::from(self.channel_count);
                 return Some(sample);
             }
             self.channel_index += 1;
             // restart with the first frame
-            self.sample_index = self.channel_index;
+            self.sample_index = usize::from(self.channel_index);
         }
 
         None
@@ -272,16 +277,19 @@ impl<'buffer, T: RawSample> Iterator for InterleavedSamplesSeparated<'buffer, T>
 pub struct InterleavedBufferMut<'buffer, T: RawSample> {
     samples: &'buffer mut [T],
     frame_count: FrameIndex,
-    channel_count: ChannelIndex,
+    channel_count: ChannelCount,
 }
 
 impl<'buffer, T: RawSample> InterleavedBufferMut<'buffer, T> {
     pub fn new(
         samples: &'buffer mut [T],
-        frame_count: FrameIndex,
-        channel_count: ChannelIndex,
+        frame_count: FrameCount,
+        channel_count: ChannelCount,
     ) -> Self {
-        assert_eq!(samples.len(), frame_count * channel_count);
+        assert_eq!(
+            samples.len(),
+            frame_count as usize * usize::from(channel_count)
+        );
 
         Self {
             samples,
@@ -291,18 +299,18 @@ impl<'buffer, T: RawSample> InterleavedBufferMut<'buffer, T> {
     }
 
     fn offset(&self, SampleAddress { channel, frame }: SampleAddress) -> SampleIndex {
-        self.channel_count * frame + channel
+        usize::from(self.channel_count) * frame as usize + usize::from(channel)
     }
 
     fn frame_range(&self, frame_index: FrameIndex) -> Range<SampleIndex> {
-        let start = frame_index * self.channel_count;
-        start..(start + self.channel_count)
+        let start = frame_index as usize * usize::from(self.channel_count);
+        start..(start + usize::from(self.channel_count))
     }
 }
 
-impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
-    for InterleavedBufferMut<'buffer, T>
-{
+impl<'buffer, T: RawSample> SampleBufferMut for InterleavedBufferMut<'buffer, T> {
+    type Item = T::Primitive;
+
     fn frame_count(&self) -> FrameIndex {
         self.frame_count
     }
@@ -327,7 +335,7 @@ impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
     {
         for (frame_out, frame_in) in self
             .samples
-            .chunks_exact_mut(self.channel_count)
+            .chunks_exact_mut(usize::from(self.channel_count))
             .zip(frames)
         {
             let frame_samples = frame_in.into_iter().map(T::Primitive::from).map(T::from);
@@ -338,7 +346,7 @@ impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
         }
     }
 
-    fn channel_count(&self) -> ChannelIndex {
+    fn channel_count(&self) -> ChannelCount {
         self.channel_count
     }
 
@@ -350,8 +358,8 @@ impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
         let channel_samples = channel.into_iter().map(T::Primitive::from).map(T::from);
         self.samples
             .iter_mut()
-            .skip(index)
-            .step_by(self.channel_count)
+            .skip(usize::from(index))
+            .step_by(usize::from(self.channel_count))
             .zip(channel_samples)
             .for_each(|(sample_out, sample_in)| *sample_out = sample_in);
     }
@@ -365,7 +373,9 @@ impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
         channels
             .into_iter()
             .enumerate()
-            .for_each(|(channel_index, channel)| self.write_channel(channel_index, channel));
+            .for_each(|(channel_index, channel)| {
+                self.write_channel(channel_index as ChannelIndex, channel)
+            });
     }
 
     fn write_sample<Sample>(&mut self, address: SampleAddress, sample: Sample)
@@ -392,7 +402,7 @@ impl<'buffer, T: RawSample> SampleBufferMut<'buffer, T::Primitive>
         Samples: IntoIterator<Item = Sample>,
         T::Primitive: From<Sample>,
     {
-        let channels = samples.into_iter().chunks(self.frame_count);
+        let channels = samples.into_iter().chunks(self.frame_count as usize);
         self.write_channels(channels.into_iter());
     }
 }
