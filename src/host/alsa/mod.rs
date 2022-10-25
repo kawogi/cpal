@@ -4,13 +4,15 @@ extern crate parking_lot;
 
 use self::alsa::poll::Descriptors;
 use self::parking_lot::Mutex;
+use crate::buffers::AudioSource;
+use crate::samples_formats::RawSampleFormat;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    types, BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
+    DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, SizedSample,
+    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::cmp;
 use std::convert::TryInto;
@@ -62,6 +64,7 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
+    type StreamNew = StreamNew;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
@@ -104,6 +107,33 @@ impl DeviceTrait for Device {
         let stream = Stream::new_input(
             Arc::new(stream_inner),
             data_callback,
+            error_callback,
+            timeout,
+        );
+        Ok(stream)
+    }
+
+    fn build_output_stream_raw_new<A, E>(
+        &self,
+        conf: &StreamConfig,
+        //sample_format: RawSampleFormat,
+        audio_source: A,
+        error_callback: E,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self::StreamNew, BuildStreamError>
+    where
+        A: AudioSource,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        // FIXME this need to be deduced somehow
+        let a = 0; // ← warning
+        let sample_format = RawSampleFormat::F32(types::f32::RawFormat::LE);
+
+        let stream_inner =
+            self.build_stream_inner_new(conf, sample_format, alsa::Direction::Capture)?;
+        let stream = Stream::new_input_new(
+            Arc::new(stream_inner),
+            audio_source,
             error_callback,
             timeout,
         );
@@ -289,6 +319,65 @@ impl Device {
         }
 
         let stream_inner = StreamInner {
+            channel: handle,
+            sample_format,
+            num_descriptors,
+            conf: conf.clone(),
+            period_len,
+            can_pause,
+            creation_instant,
+        };
+
+        Ok(stream_inner)
+    }
+
+    fn build_stream_inner_new(
+        &self,
+        conf: &StreamConfig,
+        sample_format: RawSampleFormat,
+        stream_type: alsa::Direction,
+    ) -> Result<StreamInnerNew, BuildStreamError> {
+        let handle_result = self
+            .handles
+            .lock()
+            .take(&self.name, stream_type)
+            .map_err(|e| (e, e.errno()));
+
+        let handle = match handle_result {
+            Err((_, alsa::nix::errno::Errno::EBUSY)) => {
+                return Err(BuildStreamError::DeviceNotAvailable)
+            }
+            Err((_, alsa::nix::errno::Errno::EINVAL)) => {
+                return Err(BuildStreamError::InvalidArgument)
+            }
+            Err((e, _)) => return Err(e.into()),
+            Ok(handle) => handle,
+        };
+        let can_pause = set_hw_params_from_format_new(&handle, conf, sample_format)?;
+        let period_len = set_sw_params_from_format(&handle, conf, stream_type)?;
+
+        handle.prepare()?;
+
+        let num_descriptors = handle.count();
+        if num_descriptors == 0 {
+            let description = "poll descriptor count for stream was 0".to_string();
+            let err = BackendSpecificError { description };
+            return Err(err.into());
+        }
+
+        // Check to see if we can retrieve valid timestamps from the device.
+        // Related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
+        let ts = handle.status()?.get_htstamp();
+        let creation_instant = match (ts.tv_sec, ts.tv_nsec) {
+            (0, 0) => Some(std::time::Instant::now()),
+            _ => None,
+        };
+
+        if let alsa::Direction::Capture = stream_type {
+            handle.start()?;
+        }
+
+        let stream_inner = StreamInnerNew {
             channel: handle,
             sample_format,
             num_descriptors,
@@ -542,6 +631,42 @@ struct StreamInner {
 // Assume that the ALSA library is built with thread safe option.
 unsafe impl Sync for StreamInner {}
 
+struct StreamInnerNew {
+    // The ALSA channel.
+    channel: alsa::pcm::PCM,
+
+    // When converting between file descriptors and `snd_pcm_t`, this is the number of
+    // file descriptors that this `snd_pcm_t` uses.
+    num_descriptors: usize,
+
+    // Format of the samples.
+    sample_format: RawSampleFormat,
+
+    // The configuration used to open this stream.
+    conf: StreamConfig,
+
+    // Minimum number of samples to put in the buffer.
+    period_len: usize,
+
+    #[allow(dead_code)]
+    // Whether or not the hardware supports pausing the stream.
+    // TODO: We need an API to expose this. See #197, #284.
+    can_pause: bool,
+
+    // In the case that the device does not return valid timestamps via `get_htstamp`, this field
+    // will be `Some` and will contain an `Instant` representing the moment the stream was created.
+    //
+    // If this field is `Some`, then the stream will use the duration since this instant as a
+    // source for timestamps.
+    //
+    // If this field is `None` then the elapsed duration between `get_trigger_htstamp` and
+    // `get_htstamp` is used.
+    creation_instant: Option<std::time::Instant>,
+}
+
+// Assume that the ALSA library is built with thread safe option.
+unsafe impl Sync for StreamInnerNew {}
+
 #[derive(Debug, Eq, PartialEq)]
 enum StreamType {
     Input,
@@ -555,6 +680,18 @@ pub struct Stream {
 
     /// Handle to the underlying stream for playback controls.
     inner: Arc<StreamInner>,
+
+    /// Used to signal to stop processing.
+    trigger: TriggerSender,
+}
+
+pub struct StreamNew {
+    /// The high-priority audio processing thread calling callbacks.
+    /// Option used for moving out in destructor.
+    thread: Option<JoinHandle<()>>,
+
+    /// Handle to the underlying stream for playback controls.
+    inner: Arc<StreamInnerNew>,
 
     /// Used to signal to stop processing.
     trigger: TriggerSender,
@@ -620,6 +757,59 @@ fn input_stream_worker(
                     "expected input stream, but polling descriptors indicated output",
                 );
                 if let Err(err) = process_input(
+                    stream,
+                    &mut ctxt.buffer,
+                    status,
+                    delay_frames,
+                    data_callback,
+                ) {
+                    error_callback(err.into());
+                }
+            }
+        }
+    }
+}
+
+fn input_stream_worker_new<A>(
+    rx: TriggerReceiver,
+    stream: &StreamInnerNew,
+    data_callback: &mut A, //mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
+    error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
+    timeout: Option<Duration>,
+) where
+    A: AudioSource,
+{
+    let mut ctxt = StreamWorkerContext::new(&timeout);
+    loop {
+        let flow =
+            poll_descriptors_and_prepare_buffer_new(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
+                error_callback(err.into());
+                PollDescriptorsFlow::Continue
+            });
+
+        match flow {
+            PollDescriptorsFlow::Continue => {
+                continue;
+            }
+            PollDescriptorsFlow::XRun => {
+                if let Err(err) = stream.channel.prepare() {
+                    error_callback(err.into());
+                }
+                continue;
+            }
+            PollDescriptorsFlow::Return => return,
+            PollDescriptorsFlow::Ready {
+                status,
+                avail_frames: _,
+                delay_frames,
+                stream_type,
+            } => {
+                assert_eq!(
+                    stream_type,
+                    StreamType::Input,
+                    "expected input stream, but polling descriptors indicated output",
+                );
+                if let Err(err) = process_input_new(
                     stream,
                     &mut ctxt.buffer,
                     status,
@@ -783,6 +973,93 @@ fn poll_descriptors_and_prepare_buffer(
     })
 }
 
+// This block is shared between both input and output stream worker functions.
+fn poll_descriptors_and_prepare_buffer_new(
+    rx: &TriggerReceiver,
+    stream: &StreamInnerNew,
+    ctxt: &mut StreamWorkerContext,
+) -> Result<PollDescriptorsFlow, BackendSpecificError> {
+    let StreamWorkerContext {
+        ref mut descriptors,
+        ref mut buffer,
+        ref poll_timeout,
+    } = *ctxt;
+
+    descriptors.clear();
+
+    // Add the self-pipe for signaling termination.
+    descriptors.push(libc::pollfd {
+        fd: rx.0,
+        events: libc::POLLIN,
+        revents: 0,
+    });
+
+    // Add ALSA polling fds.
+    let len = descriptors.len();
+    descriptors.resize(
+        stream.num_descriptors + len,
+        libc::pollfd {
+            fd: 0,
+            events: 0,
+            revents: 0,
+        },
+    );
+    let filled = stream.channel.fill(&mut descriptors[len..])?;
+    debug_assert_eq!(filled, stream.num_descriptors);
+
+    // Don't timeout, wait forever.
+    let res = alsa::poll::poll(descriptors, *poll_timeout)?;
+    if res == 0 {
+        let description = String::from("`alsa::poll()` spuriously returned");
+        return Err(BackendSpecificError { description });
+    }
+
+    if descriptors[0].revents != 0 {
+        // The stream has been requested to be destroyed.
+        rx.clear_pipe();
+        return Ok(PollDescriptorsFlow::Return);
+    }
+
+    let stream_type = match stream.channel.revents(&descriptors[1..])? {
+        alsa::poll::Flags::OUT => StreamType::Output,
+        alsa::poll::Flags::IN => StreamType::Input,
+        _ => {
+            // Nothing to process, poll again
+            return Ok(PollDescriptorsFlow::Continue);
+        }
+    };
+
+    let status = stream.channel.status()?;
+    let avail_frames = match stream.channel.avail() {
+        Err(err) if err.errno() == alsa::nix::errno::Errno::EPIPE => {
+            return Ok(PollDescriptorsFlow::XRun)
+        }
+        res => res,
+    }? as usize;
+    let delay_frames = match status.get_delay() {
+        // Buffer underrun. TODO: Notify the user.
+        d if d < 0 => 0,
+        d => d as usize,
+    };
+    let available_samples = avail_frames * stream.conf.channels as usize;
+
+    // Only go on if there is at least `stream.period_len` samples.
+    if available_samples < stream.period_len {
+        return Ok(PollDescriptorsFlow::Continue);
+    }
+
+    // Prepare the data buffer.
+    let buffer_size = stream.sample_format.sample_size() * available_samples;
+    buffer.resize(buffer_size, 0u8);
+
+    Ok(PollDescriptorsFlow::Ready {
+        stream_type,
+        status,
+        avail_frames,
+        delay_frames,
+    })
+}
+
 // Read input data from ALSA and deliver it to the user.
 fn process_input(
     stream: &StreamInner,
@@ -804,6 +1081,195 @@ fn process_input(
     let timestamp = crate::InputStreamTimestamp { callback, capture };
     let info = crate::InputCallbackInfo { timestamp };
     data_callback(&data, &info);
+
+    Ok(())
+}
+
+fn process_input_new<A>(
+    stream: &StreamInnerNew,
+    buffer: &mut [u8],
+    status: alsa::pcm::Status,
+    delay_frames: usize,
+    data_callback: &mut A, //mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
+) -> Result<(), BackendSpecificError>
+where
+    A: AudioSource,
+    A::Item: SizedSample,
+{
+    // read audio into buffer
+    let frame_count = FrameCount::try_from(stream.channel.io_bytes().readi(buffer)?)
+        .unwrap_or_else(|count| {
+            panic!(
+                "buffer was bigger than {} frames ({count})",
+                FrameCount::MAX
+            )
+        });
+    let sample_format = stream.sample_format;
+    //let data = buffer.as_mut_ptr() as *mut ();
+    //let len = buffer.len() / sample_format.sample_size();
+    //let data = unsafe { Data::from_parts(data, len, sample_format) };
+    let callback = stream_timestamp(&status, stream.creation_instant)?;
+    let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
+    let capture = callback
+        .sub(delay_duration)
+        .expect("`capture` is earlier than representation supported by `StreamInstant`");
+    let timestamp = crate::InputStreamTimestamp { callback, capture };
+    let info = crate::InputCallbackInfo { timestamp };
+
+    let channel_count = stream.conf.channels;
+
+    if A::Item::FORMAT != SampleFormat::from(sample_format) {
+        panic!();
+    }
+
+    println!("process_input_new");
+
+    match SampleFormat::from(sample_format) {
+        SampleFormat::I8 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+        SampleFormat::I16 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+        SampleFormat::I24 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+        SampleFormat::I32 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+        SampleFormat::I64 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+        SampleFormat::U8 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+        SampleFormat::U16 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+        SampleFormat::U24 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+        SampleFormat::U32 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+        SampleFormat::U64 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+        SampleFormat::F32 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+        SampleFormat::F64 => {
+            if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
+                buffer,
+                sample_format,
+                channel_count,
+                frame_count,
+            ) {
+                data_callback.fill_buffer(buffer, &info);
+            } else {
+                panic!();
+            }
+        }
+    }
 
     Ok(())
 }
@@ -946,6 +1412,38 @@ impl Stream {
         }
     }
 
+    fn new_input_new<A, E>(
+        inner: Arc<StreamInnerNew>,
+        mut data_callback: A,
+        mut error_callback: E,
+        timeout: Option<Duration>,
+    ) -> StreamNew
+    where
+        A: AudioSource, //FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let (tx, rx) = trigger();
+        // Clone the handle for passing into worker thread.
+        let stream = inner.clone();
+        let thread = thread::Builder::new()
+            .name("cpal_alsa_in".to_owned())
+            .spawn(move || {
+                input_stream_worker_new(
+                    rx,
+                    &stream,
+                    &mut data_callback,
+                    &mut error_callback,
+                    timeout,
+                );
+            })
+            .unwrap();
+        StreamNew {
+            thread: Some(thread),
+            inner,
+            trigger: tx,
+        }
+    }
+
     fn new_output<D, E>(
         inner: Arc<StreamInner>,
         mut data_callback: D,
@@ -987,6 +1485,24 @@ impl Drop for Stream {
 }
 
 impl StreamTrait for Stream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        self.inner.channel.pause(false).ok();
+        Ok(())
+    }
+    fn pause(&self) -> Result<(), PauseStreamError> {
+        self.inner.channel.pause(true).ok();
+        Ok(())
+    }
+}
+
+impl Drop for StreamNew {
+    fn drop(&mut self) {
+        self.trigger.wakeup();
+        self.thread.take().unwrap().join().unwrap();
+    }
+}
+
+impl StreamTrait for StreamNew {
     fn play(&self) -> Result<(), PlayStreamError> {
         self.inner.channel.pause(false).ok();
         Ok(())
@@ -1054,6 +1570,81 @@ fn set_hw_params_from_format(
                     ),
                 })
             }
+        }
+    };
+
+    hw_params.set_format(sample_format)?;
+    hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
+    hw_params.set_channels(config.channels as u32)?;
+
+    match config.buffer_size {
+        BufferSize::Fixed(v) => {
+            hw_params.set_period_size_near((v / 4) as alsa::pcm::Frames, alsa::ValueOr::Nearest)?;
+            hw_params.set_buffer_size(v as alsa::pcm::Frames)?;
+        }
+        BufferSize::Default => {
+            // These values together represent a moderate latency and wakeup interval.
+            // Without them, we are at the mercy of the device
+            hw_params.set_period_time_near(25_000, alsa::ValueOr::Nearest)?;
+            hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest)?;
+        }
+    }
+
+    pcm_handle.hw_params(&hw_params)?;
+
+    Ok(hw_params.can_pause())
+}
+
+fn set_hw_params_from_format_new(
+    pcm_handle: &alsa::pcm::PCM,
+    config: &StreamConfig,
+    sample_format: RawSampleFormat,
+) -> Result<bool, BackendSpecificError> {
+    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
+    hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
+
+    let sample_format = match sample_format {
+        RawSampleFormat::I8(types::i8::RawFormat::NE) => alsa::pcm::Format::S8,
+        RawSampleFormat::I16(types::i16::RawFormat::LE) => alsa::pcm::Format::S16LE,
+        RawSampleFormat::I16(types::i16::RawFormat::BE) => alsa::pcm::Format::S16BE,
+        // RawSampleFormat::I18(types::i18::RawFormat::LE3B) => alsa::pcm::Format::S183LE,
+        // RawSampleFormat::I18(types::i18::RawFormat::BE3B) => alsa::pcm::Format::S183BE,
+        // RawSampleFormat::I20(types::i20::RawFormat::LE3B) => alsa::pcm::Format::S203LE,
+        // RawSampleFormat::I20(types::i20::RawFormat::BE3B) => alsa::pcm::Format::S203BE,
+        RawSampleFormat::I24(types::i24::RawFormat::LE3B) => alsa::pcm::Format::S243LE,
+        RawSampleFormat::I24(types::i24::RawFormat::BE3B) => alsa::pcm::Format::S243BE,
+        RawSampleFormat::I24(types::i24::RawFormat::LE4B) => alsa::pcm::Format::S24LE,
+        RawSampleFormat::I24(types::i24::RawFormat::BE4B) => alsa::pcm::Format::S24BE,
+        RawSampleFormat::I32(types::i32::RawFormat::LE) => alsa::pcm::Format::S32LE,
+        RawSampleFormat::I32(types::i32::RawFormat::BE) => alsa::pcm::Format::S32BE,
+        // RawSampleFormat::I64(types::i64::RawFormat::LE) => unimplemented!(),
+        // RawSampleFormat::I64(types::i64::RawFormat::BE) => unimplemented!(),
+        RawSampleFormat::U8(types::u8::RawFormat::NE) => alsa::pcm::Format::U8,
+        RawSampleFormat::U16(types::u16::RawFormat::LE) => alsa::pcm::Format::U16LE,
+        RawSampleFormat::U16(types::u16::RawFormat::BE) => alsa::pcm::Format::U16BE,
+        // RawSampleFormat::U18(types::u18::RawFormat::LE3B) => alsa::pcm::Format::U183LE,
+        // RawSampleFormat::U18(types::u18::RawFormat::BE3B) => alsa::pcm::Format::U183BE,
+        // RawSampleFormat::U20(types::u20::RawFormat::LE3B) => alsa::pcm::Format::U203LE,
+        // RawSampleFormat::U20(types::u20::RawFormat::BE3B) => alsa::pcm::Format::U203BE,
+        RawSampleFormat::U24(types::u24::RawFormat::LE3B) => alsa::pcm::Format::U243LE,
+        RawSampleFormat::U24(types::u24::RawFormat::BE3B) => alsa::pcm::Format::U243BE,
+        RawSampleFormat::U24(types::u24::RawFormat::LE4B) => alsa::pcm::Format::U24LE,
+        RawSampleFormat::U24(types::u24::RawFormat::BE4B) => alsa::pcm::Format::U24BE,
+        RawSampleFormat::U32(types::u32::RawFormat::LE) => alsa::pcm::Format::U32LE,
+        RawSampleFormat::U32(types::u32::RawFormat::BE) => alsa::pcm::Format::U32BE,
+        // RawSampleFormat::U64(types::u64::RawFormat::LE) => unimplemented!(),
+        // RawSampleFormat::U64(types::u64::RawFormat::BE) => unimplemented!(),
+        RawSampleFormat::F32(types::f32::RawFormat::LE) => alsa::pcm::Format::FloatLE,
+        RawSampleFormat::F32(types::f32::RawFormat::BE) => alsa::pcm::Format::FloatBE,
+        RawSampleFormat::F64(types::f64::RawFormat::LE) => alsa::pcm::Format::Float64LE,
+        RawSampleFormat::F64(types::f64::RawFormat::BE) => alsa::pcm::Format::Float64BE,
+        sample_format => {
+            return Err(BackendSpecificError {
+                description: format!(
+                    "Sample format '{}' is not supported by this backend",
+                    sample_format
+                ),
+            })
         }
     };
 

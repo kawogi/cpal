@@ -67,6 +67,7 @@ macro_rules! impl_platform_host {
         //
         // TODO: Confirm this and add more specific detail and references.
         pub struct Stream(StreamInner, crate::platform::NotSendSyncAcrossAllPlatforms);
+        pub struct StreamNew(StreamInnerNew, crate::platform::NotSendSyncAcrossAllPlatforms);
 
         /// The **SupportedInputConfigs** iterator associated with the platform's dynamically
         /// dispatched **Host** type.
@@ -114,6 +115,13 @@ macro_rules! impl_platform_host {
             $(
                 $(#[cfg($feat)])?
                 $HostVariant(crate::host::$host_mod::Stream),
+            )*
+        }
+
+        pub enum StreamInnerNew {
+            $(
+                $(#[cfg($feat)])?
+                $HostVariant(crate::host::$host_mod::StreamNew),
             )*
         }
 
@@ -300,6 +308,7 @@ macro_rules! impl_platform_host {
             type SupportedInputConfigs = SupportedInputConfigs;
             type SupportedOutputConfigs = SupportedOutputConfigs;
             type Stream = Stream;
+            type StreamNew = StreamNew;
 
             fn name(&self) -> Result<String, crate::DeviceNameError> {
                 match self.0 {
@@ -411,6 +420,34 @@ macro_rules! impl_platform_host {
                     )*
                 }
             }
+
+            fn build_output_stream_raw_new<A, E>(
+                &self,
+                config: &crate::StreamConfig,
+                //sample_format: crate::samples_formats::RawSampleFormat,
+                audio_source: A,
+                error_callback: E,
+                timeout: Option<std::time::Duration>,
+            ) -> Result<Self::StreamNew, crate::BuildStreamError>
+            where
+                A: crate::buffers::AudioSource,
+                E: FnMut(crate::StreamError) + Send + 'static
+            {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(ref d) => d
+                            .build_output_stream_raw_new(
+                                config,
+                                audio_source,
+                                error_callback,
+                                timeout,
+                            )
+                            .map(StreamInnerNew::$HostVariant)
+                            .map(StreamNew::from),
+                    )*
+                }
+            }
         }
 
         impl crate::traits::HostTrait for Host {
@@ -483,6 +520,30 @@ macro_rules! impl_platform_host {
             }
         }
 
+        impl crate::traits::StreamTrait for StreamNew {
+            fn play(&self) -> Result<(), crate::PlayStreamError> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        StreamInnerNew::$HostVariant(ref s) => {
+                            s.play()
+                        }
+                    )*
+                }
+            }
+
+            fn pause(&self) -> Result<(), crate::PauseStreamError> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        StreamInnerNew::$HostVariant(ref s) => {
+                            s.pause()
+                        }
+                    )*
+                }
+            }
+        }
+
         impl From<DeviceInner> for Device {
             fn from(d: DeviceInner) -> Self {
                 Device(d)
@@ -504,6 +565,12 @@ macro_rules! impl_platform_host {
         impl From<StreamInner> for Stream {
             fn from(s: StreamInner) -> Self {
                 Stream(s, Default::default())
+            }
+        }
+
+        impl From<StreamInnerNew> for StreamNew {
+            fn from(s: StreamInnerNew) -> Self {
+                StreamNew(s, Default::default())
             }
         }
 

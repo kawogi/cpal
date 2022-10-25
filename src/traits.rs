@@ -3,10 +3,11 @@
 use std::time::Duration;
 
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, PauseStreamError,
-    PlayStreamError, SampleFormat, SizedSample, StreamConfig, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    buffers::AudioSource, samples_formats::RawSampleFormat, BuildStreamError, Data,
+    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, InputDevices,
+    OutputCallbackInfo, OutputDevices, PauseStreamError, PlayStreamError, SampleFormat,
+    SizedSample, StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 
 /// A **Host** provides access to the available audio devices on the system.
@@ -92,6 +93,7 @@ pub trait DeviceTrait {
     type SupportedOutputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The stream type created by `build_input_stream_raw` and `build_output_stream_raw`.
     type Stream: StreamTrait;
+    type StreamNew: StreamTrait;
 
     /// The human-readable name of the device.
     fn name(&self) -> Result<String, DeviceNameError>;
@@ -145,6 +147,29 @@ pub trait DeviceTrait {
     }
 
     /// Create an output stream.
+    fn build_output_stream_new<A, E>(
+        &self,
+        config: &StreamConfig,
+        audio_source: A,
+        error_callback: E,
+        timeout: Option<Duration>,
+    ) -> Result<Self::StreamNew, BuildStreamError>
+    where
+        A: AudioSource,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        self.build_output_stream_raw_new(
+            config,
+            //RawSampleFormat::F32BE, // FIXME this needs to be derived from T/A
+            //T::FORMAT,
+            //move |data, info| audio_source.fill_buffer(data),
+            audio_source,
+            error_callback,
+            timeout,
+        )
+    }
+
+    /// Create an output stream.
     fn build_output_stream<T, D, E>(
         &self,
         config: &StreamConfig,
@@ -185,6 +210,20 @@ pub trait DeviceTrait {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 
+    // /// Create a dynamically typed input stream.
+    // fn build_input_stream_raw_new<B, D, E>(
+    //     &self,
+    //     config: &StreamConfig,
+    //     sample_format: SampleFormat,
+    //     data_callback: D,
+    //     error_callback: E,
+    //     timeout: Option<Duration>,
+    // ) -> Result<Self::Stream, BuildStreamError>
+    // where
+    //     B: for<'buffer> SampleBufferMut<'buffer>, // SizedSample + FromSample<f32>,
+    //     D: FnMut(B, &InputCallbackInfo) + Send + 'static,
+    //     E: FnMut(StreamError) + Send + 'static;
+
     /// Create a dynamically typed output stream.
     fn build_output_stream_raw<D, E>(
         &self,
@@ -196,6 +235,19 @@ pub trait DeviceTrait {
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static;
+
+    /// Create a dynamically typed output stream.
+    fn build_output_stream_raw_new<A, E>(
+        &self,
+        config: &StreamConfig,
+        //sample_format: RawSampleFormat,
+        audio_source: A,
+        error_callback: E,
+        timeout: Option<Duration>,
+    ) -> Result<Self::StreamNew, BuildStreamError>
+    where
+        A: AudioSource,
         E: FnMut(StreamError) + Send + 'static;
 }
 

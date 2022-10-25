@@ -156,18 +156,20 @@ pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
-pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, I48, U24, U48};
+pub use samples_formats::{
+    FromSample, RawSampleFormat, Sample, SampleFormat, SizedSample, I24, I48, U24, U48,
+};
 use std::convert::TryInto;
 use std::ops::{Div, Mul};
 use std::time::Duration;
 
-mod buffers;
+pub mod buffers;
 mod error;
 mod host;
 pub mod platform;
 mod samples_formats;
 pub mod traits;
-mod types;
+pub mod types;
 
 /// A host's device iterator yielding only *input* devices.
 pub type InputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;

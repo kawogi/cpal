@@ -2,12 +2,15 @@ extern crate anyhow;
 extern crate clap;
 extern crate cpal;
 
+use std::{iter, marker::PhantomData};
+
 use clap::arg;
+use cpal::FromSample;
 use cpal::{
+    buffers::{AudioSource, SampleBufferMut},
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    SizedSample,
+    InputCallbackInfo, SampleRate, SizedSample, StreamConfig, StreamError, I24, U24,
 };
-use cpal::{FromSample, Sample};
 
 #[derive(Debug)]
 struct Opt {
@@ -117,64 +120,121 @@ fn main() -> anyhow::Result<()> {
     let config = device.default_output_config().unwrap();
     println!("Default output config: {:?}", config);
 
-    match config.sample_format() {
-        cpal::SampleFormat::I8 => run::<i8>(&device, &config.into()),
-        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
-        // cpal::SampleFormat::I24 => run::<I24>(&device, &config.into()),
-        cpal::SampleFormat::I32 => run::<i32>(&device, &config.into()),
-        // cpal::SampleFormat::I48 => run::<I48>(&device, &config.into()),
-        cpal::SampleFormat::I64 => run::<i64>(&device, &config.into()),
-        cpal::SampleFormat::U8 => run::<u8>(&device, &config.into()),
-        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
-        // cpal::SampleFormat::U24 => run::<U24>(&device, &config.into()),
-        cpal::SampleFormat::U32 => run::<u32>(&device, &config.into()),
-        // cpal::SampleFormat::U48 => run::<U48>(&device, &config.into()),
-        cpal::SampleFormat::U64 => run::<u64>(&device, &config.into()),
-        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
-        cpal::SampleFormat::F64 => run::<f64>(&device, &config.into()),
-        sample_format => panic!("Unsupported sample format '{sample_format}'"),
-    }
-}
-
-pub fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
-where
-    T: SizedSample + FromSample<f32>,
-{
-    let sample_rate = config.sample_rate.0 as f32;
-    let channels = config.channels as usize;
-
-    // Produce a sinusoid of maximum amplitude.
-    let mut sample_clock = 0f32;
-    let mut next_value = move || {
-        sample_clock = (sample_clock + 1.0) % sample_rate;
-        (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
-    };
+    let sample_format = config.sample_format();
+    let sample_rate = config.sample_rate();
+    let config = StreamConfig::from(config);
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
-    let stream = device.build_output_stream(
-        config,
-        move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-            write_data(data, channels, &mut next_value)
-        },
-        err_fn,
-        None,
-    )?;
-    stream.play()?;
+    match sample_format {
+        cpal::SampleFormat::I8 => run::<i8, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::SampleFormat::I16 => run::<i16, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::SampleFormat::I24 => run::<I24, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::SampleFormat::I32 => run::<i32, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::SampleFormat::I64 => run::<i64, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::SampleFormat::U8 => run::<u8, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::SampleFormat::U16 => run::<u16, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::SampleFormat::U24 => run::<U24, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::SampleFormat::U32 => run::<u32, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::SampleFormat::U64 => run::<u64, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::SampleFormat::F32 => run::<f32, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::SampleFormat::F64 => run::<f64, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        sample_format => panic!("Unsupported sample format '{sample_format}'"),
+    }?;
 
     std::thread::sleep(std::time::Duration::from_millis(1000));
 
     Ok(())
 }
 
-fn write_data<T>(output: &mut [T], channels: usize, next_sample: &mut dyn FnMut() -> f32)
-where
-    T: Sample + FromSample<f32>,
-{
-    for frame in output.chunks_mut(channels) {
-        let value: T = T::from_sample(next_sample());
-        for sample in frame.iter_mut() {
-            *sample = value;
+struct Sinus<T> {
+    sample_clock: f32,
+    sample_rate: f32,
+    phantom_data: PhantomData<T>,
+}
+
+impl<T> Sinus<T> {
+    fn new(sample_rate: SampleRate) -> Self {
+        Self {
+            sample_clock: 0.0,
+            sample_rate: sample_rate.0 as f32,
+            phantom_data: PhantomData::default(),
         }
     }
+
+    // Produce a sinusoid of maximum amplitude.
+    fn next(&mut self) -> f32 {
+        self.sample_clock = (self.sample_clock + 1.0) % self.sample_rate;
+        (self.sample_clock * 440.0 * 2.0 * std::f32::consts::PI / self.sample_rate).sin()
+    }
 }
+
+impl<T: SizedSample + FromSample<f32>> AudioSource for Sinus<T> {
+    type Item = T;
+
+    fn fill_buffer<'buffer, B: SampleBufferMut<Item = T>>(
+        &mut self,
+        mut buffer: B,
+        _info: &InputCallbackInfo,
+    ) {
+        println!("fill_buffer");
+        let sample = T::from_sample(self.next());
+        let channel_count = buffer.channel_count();
+        let frame = || iter::repeat(sample).take(usize::from(channel_count));
+        let frames = iter::repeat_with(frame);
+        buffer.write_frames(frames);
+    }
+}
+
+fn run<T, E>(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    audio_source: Sinus<T>,
+    err_fn: E,
+) -> Result<(), anyhow::Error>
+where
+    T: SizedSample + FromSample<f32>, // + SizedSample,
+    E: FnMut(StreamError) + Send + 'static,
+{
+    let stream = device.build_output_stream_new(config, audio_source, err_fn, None)?;
+    stream.play()?;
+
+    Ok(())
+}
+
+// pub fn run<B>(
+//     device: &cpal::Device,
+//     config: &cpal::StreamConfig,
+//     sample_source: Sinus,
+//     channels: usize,
+// ) -> Result<(), anyhow::Error>
+// where
+//     for<'buffer> B: SampleBufferMut<'buffer>,
+//     //for<'buffer> <B as cpal::buffers::SampleBufferMut<'buffer>>::Item: FromSample<f32>,
+// {
+//     //let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
+
+//     // let stream = device.build_output_stream(
+//     //     config,
+//     //     move |data: B, _: &cpal::OutputCallbackInfo| write_data(data, channels, &mut next_value),
+//     //     err_fn,
+//     //     None,
+//     // )?;
+//     // stream.play()?;
+
+//     std::thread::sleep(std::time::Duration::from_millis(1000));
+
+//     Ok(())
+// }
+
+// fn write_data<T, B>(mut output: B, channels: usize, sample_source: &mut Sinus)
+// where
+//     B: for<'buffer> SampleBufferMut<'buffer, Item = T>, // SizedSample + FromSample<f32>,
+//     T: Sample + FromSample<f32>,
+//     //for<'buffer> <B as cpal::buffers::SampleBufferMut<'buffer>>::Item: FromSample<f32>,
+// {
+//     let sample: B::Item = B::Item::from_sample(sample_source.next());
+//     let frame = || iter::repeat(sample).take(channels);
+//     let frames = iter::repeat_with(frame);
+//     output.write_frames(frames);
+// }
