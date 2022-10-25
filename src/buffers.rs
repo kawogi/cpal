@@ -1,12 +1,12 @@
 use std::{mem::size_of, ops::Index, slice};
 
-use crate::types::RawSample;
+use crate::{types::RawSample, ChannelCount, FrameCount, InputCallbackInfo, SizedSample};
 
 pub mod interleaved;
 pub mod separated;
 
-pub type ChannelIndex = usize;
-pub type FrameIndex = usize;
+pub type ChannelIndex = ChannelCount;
+pub type FrameIndex = FrameCount;
 pub type SampleIndex = usize;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -15,14 +15,23 @@ pub struct SampleAddress {
     pub frame: FrameIndex,
 }
 
-pub trait SampleBuffer<T: Copy> {
-    type Frame: IntoIterator<Item = T>;
+pub trait AudioSource: 'static + Send {
+    type Item: SizedSample;
+
+    fn fill_buffer<B>(&mut self, buffer: B, info: &InputCallbackInfo)
+    where
+        B: SampleBufferMut<Item = Self::Item>;
+}
+
+pub trait SampleBuffer {
+    type Item: Copy;
+    type Frame: IntoIterator<Item = Self::Item>;
     type Frames: Iterator<Item = Self::Frame>;
-    type Channel: IntoIterator<Item = T>;
+    type Channel: IntoIterator<Item = Self::Item>;
     type Channels: Iterator<Item = Self::Channel>;
-    type Samples: Iterator<Item = (SampleAddress, T)>;
-    type SamplesInterleaved: Iterator<Item = T>;
-    type SamplesSeparated: Iterator<Item = T>;
+    type Samples: Iterator<Item = (SampleAddress, Self::Item)>;
+    type SamplesInterleaved: Iterator<Item = Self::Item>;
+    type SamplesSeparated: Iterator<Item = Self::Item>;
 
     /// number of frames in this buffer
     fn frame_count(&self) -> FrameIndex;
@@ -34,7 +43,7 @@ pub trait SampleBuffer<T: Copy> {
     fn frames(&self) -> Self::Frames;
 
     /// number of channels in this buffer
-    fn channel_count(&self) -> ChannelIndex;
+    fn channel_count(&self) -> ChannelCount;
 
     /// returns a single channel of this buffer
     fn channel(&self, index: ChannelIndex) -> Self::Channel;
@@ -58,7 +67,9 @@ pub trait SampleBuffer<T: Copy> {
     fn samples_separated(&self) -> Self::SamplesSeparated;
 }
 
-pub trait SampleBufferMut<'buffer, T: Copy> {
+pub trait SampleBufferMut {
+    type Item: Copy;
+
     /// number of frames in this buffer
     fn frame_count(&self) -> FrameIndex;
 
@@ -66,35 +77,35 @@ pub trait SampleBufferMut<'buffer, T: Copy> {
     fn write_frame<Frame, Sample>(&mut self, index: FrameIndex, frame: Frame)
     where
         Frame: IntoIterator<Item = Sample>,
-        T: From<Sample>;
+        Self::Item: From<Sample>;
 
     /// writes all frames into this buffer
     fn write_frames<Frames, Frame, Sample>(&mut self, frames: Frames)
     where
         Frames: IntoIterator<Item = Frame>,
         Frame: IntoIterator<Item = Sample>,
-        T: From<Sample>;
+        Self::Item: From<Sample>;
 
     /// number of channels in this buffer
-    fn channel_count(&self) -> ChannelIndex;
+    fn channel_count(&self) -> ChannelCount;
 
     /// writes a single channel into this buffer
     fn write_channel<Channel, Sample>(&mut self, index: ChannelIndex, channel: Channel)
     where
         Channel: IntoIterator<Item = Sample>,
-        T: From<Sample>;
+        Self::Item: From<Sample>;
 
     /// writes all channels into this buffer
     fn write_channels<Channels, Channel, Sample>(&mut self, channels: Channels)
     where
         Channels: IntoIterator<Item = Channel>,
         Channel: IntoIterator<Item = Sample>,
-        T: From<Sample>;
+        Self::Item: From<Sample>;
 
     /// writes a single sample into this buffer
     fn write_sample<Sample>(&mut self, address: SampleAddress, sample: Sample)
     where
-        T: From<Sample>;
+        Self::Item: From<Sample>;
 
     /// Writes all samples into this buffer. The samples will be grouped into frames as if they were stored in frame
     /// major order.
@@ -102,7 +113,7 @@ pub trait SampleBufferMut<'buffer, T: Copy> {
     fn write_samples_interleaved<Samples, Sample>(&mut self, samples: Samples)
     where
         Samples: IntoIterator<Item = Sample>,
-        T: From<Sample>;
+        Self::Item: From<Sample>;
 
     /// Writes all samples into this buffer. The samples will be grouped into channels as if they were stored in
     /// channel major order.
@@ -110,7 +121,7 @@ pub trait SampleBufferMut<'buffer, T: Copy> {
     fn write_samples_separated<Samples, Sample>(&mut self, samples: Samples)
     where
         Samples: IntoIterator<Item = Sample>,
-        T: From<Sample>;
+        Self::Item: From<Sample>;
 }
 
 /// multiple raw samples consecutively stored in memory
@@ -122,26 +133,26 @@ impl<'buffer, T: RawSample> SampleSlice<'buffer, T> {
     pub fn new(samples: &'buffer [T]) -> Self {
         Self { samples }
     }
+}
 
-    /// Helper method to convert a byte slice into a slice of a different type (e.g. a `RawSample`).
-    pub unsafe fn transmute_from_bytes(bytes: &[u8]) -> &[T] {
-        // make sure the buffer will have no dangling bytes after the conversion
-        assert_eq!(bytes.len() % size_of::<T>(), 0);
-        let element_count = bytes.len() / size_of::<T>();
+/// Helper method to convert a byte slice into a slice of a different type (e.g. a `RawSample`).
+pub unsafe fn transmute_from_bytes<T: RawSample>(bytes: &[u8]) -> &[T] {
+    // make sure the buffer will have no dangling bytes after the conversion
+    assert_eq!(bytes.len() % size_of::<T>(), 0);
+    let element_count = bytes.len() / size_of::<T>();
 
-        // transmute &[u8] -> &[T]
-        slice::from_raw_parts(bytes.as_ptr() as *const T, element_count)
-    }
+    // transmute &[u8] -> &[T]
+    slice::from_raw_parts(bytes.as_ptr() as *const T, element_count)
+}
 
-    /// Helper method to convert a mutable byte slice into a slice of a different type (e.g. a `RawSample`).
-    pub unsafe fn transmute_from_bytes_mut(bytes: &mut [u8]) -> &mut [T] {
-        // make sure the buffer will have no dangling bytes after the conversion
-        assert_eq!(bytes.len() % size_of::<T>(), 0);
-        let element_count = bytes.len() / size_of::<T>();
+/// Helper method to convert a mutable byte slice into a slice of a different type (e.g. a `RawSample`).
+pub unsafe fn transmute_from_bytes_mut<T: RawSample>(bytes: &mut [u8]) -> &mut [T] {
+    // make sure the buffer will have no dangling bytes after the conversion
+    assert_eq!(bytes.len() % size_of::<T>(), 0);
+    let element_count = bytes.len() / size_of::<T>();
 
-        // transmute &mut [u8] -> &mut [T]
-        slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut T, element_count)
-    }
+    // transmute &mut [u8] -> &mut [T]
+    slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut T, element_count)
 }
 
 impl<'buffer, T: RawSample> IntoIterator for SampleSlice<'buffer, T> {
@@ -175,6 +186,65 @@ impl<'buffer, T: RawSample> Iterator for Samples<'buffer, T> {
     fn next(&mut self) -> Option<Self::Item> {
         self.samples.next().copied().map(T::Primitive::from)
     }
+}
+
+#[macro_export]
+macro_rules! sized_sample {
+    ($self:ident: $($variant:ident),*) => {
+        impl $crate::SizedSample for Primitive {
+            const FORMAT: $crate::SampleFormat = FORMAT;
+
+            type RawFormat = RawFormat;
+            type Buffer<'buffer> = SampleBuffer<'buffer>;
+            type BufferMut<'buffer> = SampleBufferMut<'buffer>;
+
+            fn create_interleaved_buffer<'buffer>(
+                bytes: &'buffer [u8],
+                format: $crate::RawSampleFormat,
+                channel_count: $crate::ChannelCount,
+                frame_count: $crate::FrameCount,
+            ) -> Option<Self::Buffer<'buffer>> {
+                match format {
+                    $(
+                    $crate::RawSampleFormat::$self(RawFormat::$variant) => {
+                        let samples = unsafe { $crate::buffers::transmute_from_bytes::<$variant>(bytes) };
+                        let buffer = $crate::buffers::interleaved::InterleavedBuffer::new(
+                            samples,
+                            frame_count,
+                            channel_count,
+                        );
+                        let buffer = SampleBuffer::Interleaved(InterleavedBuffer::$variant(buffer));
+                        Some(buffer)
+                    }
+                    )*
+                    _ => None,
+                }
+            }
+
+            fn create_interleaved_buffer_mut<'buffer>(
+                bytes: &'buffer mut [u8],
+                format: $crate::RawSampleFormat,
+                channel_count: $crate::ChannelCount,
+                frame_count: $crate::FrameCount,
+            ) -> Option<Self::BufferMut<'buffer>> {
+                match format {
+                    $(
+                    $crate::RawSampleFormat::$self(RawFormat::$variant) => {
+                        let samples = unsafe { $crate::buffers::transmute_from_bytes_mut::<$variant>(bytes) };
+                        let buffer = $crate::buffers::interleaved::InterleavedBufferMut::new(
+                            samples,
+                            frame_count,
+                            channel_count,
+                        );
+                        let buffer = SampleBufferMut::Interleaved(InterleavedBufferMut::$variant(buffer));
+                        Some(buffer)
+                    }
+                    )*
+                    _ => None,
+                }
+            }
+        }
+    };
 }
 
 /// Implements enum wrappers for buffers to generalize over a set of `RawSamples` sharing the same base primitive.
@@ -328,7 +398,8 @@ macro_rules! sample_buffer {
             $($variant($crate::buffers::separated::SeparatedSamplesSeparated<'buffer, $variant>),)*
         }
 
-        impl<'buffer> $crate::buffers::SampleBuffer<Primitive> for SampleBuffer<'buffer> {
+        impl<'buffer> $crate::buffers::SampleBuffer for SampleBuffer<'buffer> {
+            type Item = Primitive;
             type Frame = Frame<'buffer>;
             type Frames = Frames<'buffer>;
             type Channel = Channel<'buffer>;
@@ -337,14 +408,14 @@ macro_rules! sample_buffer {
             type SamplesInterleaved = SamplesInterleaved<'buffer>;
             type SamplesSeparated = SamplesSeparated<'buffer>;
 
-            fn frame_count(&self) -> FrameIndex {
+            fn frame_count(&self) -> $crate::FrameCount {
                 match *self {
                     Self::Interleaved(ref buffer) => buffer.frame_count(),
                     Self::Separated(ref buffer) => buffer.frame_count(),
                 }
             }
 
-            fn frame(&self, index: FrameIndex) -> Self::Frame {
+            fn frame(&self, index: $crate::buffers::FrameIndex) -> Self::Frame {
                 match *self {
                     Self::Interleaved(ref buffer) => Self::Frame::Interleaved(buffer.frame(index)),
                     Self::Separated(ref buffer) => Self::Frame::Separated(buffer.frame(index)),
@@ -358,14 +429,14 @@ macro_rules! sample_buffer {
                 }
             }
 
-            fn channel_count(&self) -> ChannelIndex {
+            fn channel_count(&self) -> $crate::ChannelCount {
                 match *self {
                     Self::Interleaved(ref buffer) => buffer.channel_count(),
                     Self::Separated(ref buffer) => buffer.channel_count(),
                 }
             }
 
-            fn channel(&self, index: ChannelIndex) -> Self::Channel {
+            fn channel(&self, index: $crate::buffers::ChannelIndex) -> Self::Channel {
                 match *self {
                     Self::Interleaved(ref buffer) => Self::Channel::Interleaved(buffer.channel(index)),
                     Self::Separated(ref buffer) => Self::Channel::Separated(buffer.channel(index)),
@@ -409,15 +480,17 @@ macro_rules! sample_buffer {
             }
         }
 
-        impl<'buffer> $crate::buffers::SampleBufferMut<'buffer, Primitive> for SampleBufferMut<'buffer> {
-            fn frame_count(&self) -> FrameIndex {
+        impl<'buffer> $crate::buffers::SampleBufferMut for SampleBufferMut<'buffer> {
+            type Item = Primitive;
+
+            fn frame_count(&self) -> $crate::FrameCount {
                 match *self {
                     Self::Interleaved(ref buffer) => buffer.frame_count(),
                     Self::Separated(ref buffer) => buffer.frame_count(),
                 }
             }
 
-            fn write_frame<Frame, Sample>(&mut self, index: FrameIndex, frame: Frame)
+            fn write_frame<Frame, Sample>(&mut self, index: $crate::buffers::FrameIndex, frame: Frame)
             where
                 Frame: IntoIterator<Item = Sample>,
                 Primitive: From<Sample>,
@@ -440,14 +513,14 @@ macro_rules! sample_buffer {
                 }
             }
 
-            fn channel_count(&self) -> ChannelIndex {
+            fn channel_count(&self) -> $crate::ChannelCount {
                 match *self {
                     Self::Interleaved(ref buffer) => buffer.channel_count(),
                     Self::Separated(ref buffer) => buffer.channel_count(),
                 }
             }
 
-            fn write_channel<Channel, Sample>(&mut self, index: ChannelIndex, channel: Channel)
+            fn write_channel<Channel, Sample>(&mut self, index: $crate::buffers::ChannelIndex, channel: Channel)
             where
                 Channel: IntoIterator<Item = Sample>,
                 Primitive: From<Sample>,
@@ -470,7 +543,7 @@ macro_rules! sample_buffer {
                 }
             }
 
-            fn write_sample<Sample>(&mut self, address: SampleAddress, sample: Sample)
+            fn write_sample<Sample>(&mut self, address: $crate::buffers::SampleAddress, sample: Sample)
             where
                 Primitive: From<Sample>,
             {
@@ -503,7 +576,8 @@ macro_rules! sample_buffer {
             }
         }
 
-        impl<'buffer> $crate::buffers::SampleBuffer<Primitive> for InterleavedBuffer<'buffer> {
+        impl<'buffer> $crate::buffers::SampleBuffer for InterleavedBuffer<'buffer> {
+            type Item = Primitive;
             type Frame = InterleavedFrame<'buffer>;
             type Frames = InterleavedFrames<'buffer>;
             type Channel = InterleavedChannel<'buffer>;
@@ -512,13 +586,13 @@ macro_rules! sample_buffer {
             type SamplesInterleaved = InterleavedSamplesInterleaved<'buffer>;
             type SamplesSeparated = InterleavedSamplesSeparated<'buffer>;
 
-            fn frame_count(&self) -> FrameIndex {
+            fn frame_count(&self) -> $crate::FrameCount {
                 match *self {
                     $(Self::$variant(ref buffer) => buffer.frame_count(),)*
                 }
             }
 
-            fn frame(&self, index: FrameIndex) -> Self::Frame {
+            fn frame(&self, index: $crate::buffers::FrameIndex) -> Self::Frame {
             match *self {
                     $(Self::$variant(ref buffer) => Self::Frame::$variant(buffer.frame(index)),)*
                 }
@@ -530,13 +604,13 @@ macro_rules! sample_buffer {
                 }
             }
 
-            fn channel_count(&self) -> ChannelIndex {
+            fn channel_count(&self) -> $crate::ChannelCount {
             match *self {
                     $(Self::$variant(ref buffer) => buffer.channel_count(),)*
                 }
             }
 
-            fn channel(&self, index: ChannelIndex) -> Self::Channel {
+            fn channel(&self, index: $crate::buffers::ChannelIndex) -> Self::Channel {
             match *self {
                     $(Self::$variant(ref buffer) => Self::Channel::$variant(buffer.channel(index)),)*
                 }
@@ -567,16 +641,18 @@ macro_rules! sample_buffer {
             }
         }
 
-        impl<'buffer> $crate::buffers::SampleBufferMut<'buffer, Primitive>
+        impl<'buffer> $crate::buffers::SampleBufferMut
             for InterleavedBufferMut<'buffer>
         {
-            fn frame_count(&self) -> FrameIndex {
+            type Item = Primitive;
+
+            fn frame_count(&self) -> $crate::FrameCount {
             match *self {
                     $(Self::$variant(ref buffer) => buffer.frame_count(),)*
                 }
             }
 
-            fn write_frame<Frame, Sample>(&mut self, index: FrameIndex, frame: Frame)
+            fn write_frame<Frame, Sample>(&mut self, index: $crate::buffers::FrameIndex, frame: Frame)
             where
                 Frame: IntoIterator<Item = Sample>,
                 Primitive: From<Sample>,
@@ -597,13 +673,13 @@ macro_rules! sample_buffer {
                 }
             }
 
-            fn channel_count(&self) -> ChannelIndex {
+            fn channel_count(&self) -> $crate::ChannelCount {
             match *self {
                     $(Self::$variant(ref buffer) => buffer.channel_count(),)*
                 }
             }
 
-            fn write_channel<Channel, Sample>(&mut self, index: ChannelIndex, channel: Channel)
+            fn write_channel<Channel, Sample>(&mut self, index: $crate::buffers::ChannelIndex, channel: Channel)
             where
                 Channel: IntoIterator<Item = Sample>,
                 Primitive: From<Sample>,
@@ -624,7 +700,7 @@ macro_rules! sample_buffer {
                 }
             }
 
-            fn write_sample<Sample>(&mut self, address: SampleAddress, sample: Sample)
+            fn write_sample<Sample>(&mut self, address: $crate::buffers::SampleAddress, sample: Sample)
             where
                 Primitive: From<Sample>,
             {
@@ -654,7 +730,8 @@ macro_rules! sample_buffer {
             }
         }
 
-        impl<'buffer> $crate::buffers::SampleBuffer<Primitive> for SeparatedBuffer<'buffer> {
+        impl<'buffer> $crate::buffers::SampleBuffer for SeparatedBuffer<'buffer> {
+            type Item = Primitive;
             type Frame = SeparatedFrame<'buffer>;
             type Frames = SeparatedFrames<'buffer>;
             type Channel = SeparatedChannel<'buffer>;
@@ -663,13 +740,13 @@ macro_rules! sample_buffer {
             type SamplesInterleaved = SeparatedSamplesInterleaved<'buffer>;
             type SamplesSeparated = SeparatedSamplesSeparated<'buffer>;
 
-            fn frame_count(&self) -> FrameIndex {
+            fn frame_count(&self) -> $crate::FrameCount {
             match *self {
                     $(Self::$variant(ref buffer) => buffer.frame_count(),)*
                 }
             }
 
-            fn frame(&self, index: FrameIndex) -> Self::Frame {
+            fn frame(&self, index: $crate::buffers::FrameIndex) -> Self::Frame {
             match *self {
                     $(Self::$variant(ref buffer) => Self::Frame::$variant(buffer.frame(index)),)*
                 }
@@ -681,13 +758,13 @@ macro_rules! sample_buffer {
                 }
             }
 
-            fn channel_count(&self) -> ChannelIndex {
+            fn channel_count(&self) -> $crate::ChannelCount {
             match *self {
                     $(Self::$variant(ref buffer) => buffer.channel_count(),)*
                 }
             }
 
-            fn channel(&self, index: ChannelIndex) -> Self::Channel {
+            fn channel(&self, index: $crate::buffers::ChannelIndex) -> Self::Channel {
             match *self {
                     $(Self::$variant(ref buffer) => Self::Channel::$variant(buffer.channel(index)),)*
                 }
@@ -718,14 +795,16 @@ macro_rules! sample_buffer {
             }
         }
 
-        impl<'buffer> $crate::buffers::SampleBufferMut<'buffer, Primitive> for SeparatedBufferMut<'buffer> {
-            fn frame_count(&self) -> FrameIndex {
+        impl<'buffer> $crate::buffers::SampleBufferMut for SeparatedBufferMut<'buffer> {
+            type Item = Primitive;
+
+            fn frame_count(&self) -> $crate::FrameCount {
             match *self {
                     $(Self::$variant(ref buffer) => buffer.frame_count(),)*
                 }
             }
 
-            fn write_frame<Frame, Sample>(&mut self, index: FrameIndex, frame: Frame)
+            fn write_frame<Frame, Sample>(&mut self, index: $crate::buffers::FrameIndex, frame: Frame)
             where
                 Frame: IntoIterator<Item = Sample>,
                 Primitive: From<Sample>,
@@ -746,13 +825,13 @@ macro_rules! sample_buffer {
                 }
             }
 
-            fn channel_count(&self) -> ChannelIndex {
+            fn channel_count(&self) -> $crate::ChannelCount {
             match *self {
                     $(Self::$variant(ref buffer) => buffer.channel_count(),)*
                 }
             }
 
-            fn write_channel<Channel, Sample>(&mut self, index: ChannelIndex, channel: Channel)
+            fn write_channel<Channel, Sample>(&mut self, index: $crate::buffers::ChannelIndex, channel: Channel)
             where
                 Channel: IntoIterator<Item = Sample>,
                 Primitive: From<Sample>,
@@ -773,7 +852,7 @@ macro_rules! sample_buffer {
                 }
             }
 
-            fn write_sample<Sample>(&mut self, address: SampleAddress, sample: Sample)
+            fn write_sample<Sample>(&mut self, address: $crate::buffers::SampleAddress, sample: Sample)
             where
                 Primitive: From<Sample>,
             {
@@ -1002,7 +1081,7 @@ macro_rules! sample_buffer {
         }
 
         impl<'buffer> Iterator for Samples<'buffer> {
-            type Item = (SampleAddress, Primitive);
+            type Item = ($crate::buffers::SampleAddress, Primitive);
 
             fn next(&mut self) -> Option<Self::Item> {
                 match self {
@@ -1013,7 +1092,7 @@ macro_rules! sample_buffer {
         }
 
         impl<'buffer> Iterator for InterleavedSamples<'buffer> {
-            type Item = (SampleAddress, Primitive);
+            type Item = ($crate::buffers::SampleAddress, Primitive);
 
             fn next(&mut self) -> Option<Self::Item> {
             match self {
@@ -1023,7 +1102,7 @@ macro_rules! sample_buffer {
         }
 
         impl<'buffer> Iterator for SeparatedSamples<'buffer> {
-            type Item = (SampleAddress, Primitive);
+            type Item = ($crate::buffers::SampleAddress, Primitive);
 
             fn next(&mut self) -> Option<Self::Item> {
             match self {
