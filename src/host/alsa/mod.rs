@@ -290,7 +290,7 @@ impl Device {
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
         };
-        let can_pause = set_hw_params_from_format(&handle, conf, sample_format)?;
+        let can_pause = set_hw_params_from_format_new(&handle, conf, sample_format)?;
         let period_len = set_sw_params_from_format(&handle, conf, stream_type)?;
 
         handle.prepare()?;
@@ -414,7 +414,6 @@ impl Device {
 
         let hw_params = alsa::pcm::HwParams::any(handle)?;
 
-        // TODO: check endianness
         const FORMATS: [(RawSampleFormat, alsa::pcm::Format); 22] = [
             (
                 RawSampleFormat::I8(types::i8::RawFormat::NE),
@@ -1534,87 +1533,87 @@ impl StreamTrait for Stream {
     }
 }
 
-fn set_hw_params_from_format(
-    pcm_handle: &alsa::pcm::PCM,
-    config: &StreamConfig,
-    sample_format: RawSampleFormat,
-) -> Result<bool, BackendSpecificError> {
-    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
-    hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
+// fn set_hw_params_from_format_new(
+//     pcm_handle: &alsa::pcm::PCM,
+//     config: &StreamConfig,
+//     sample_format: RawSampleFormat,
+// ) -> Result<bool, BackendSpecificError> {
+//     let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
+//     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
-    let sample_format = if cfg!(target_endian = "big") {
-        match sample_format {
-            RawSampleFormat::I8(_) => alsa::pcm::Format::S8,
-            RawSampleFormat::I16(_) => alsa::pcm::Format::S16BE,
-            // RawSampleFormat::I24(_) => alsa::pcm::Format::S24BE,
-            RawSampleFormat::I32(_) => alsa::pcm::Format::S32BE,
-            // RawSampleFormat::I48(_) => alsa::pcm::Format::S48BE,
-            // RawSampleFormat::I64(_) => alsa::pcm::Format::S64BE,
-            RawSampleFormat::U8(_) => alsa::pcm::Format::U8,
-            RawSampleFormat::U16(_) => alsa::pcm::Format::U16BE,
-            // RawSampleFormat::U24(_) => alsa::pcm::Format::U24BE,
-            RawSampleFormat::U32(_) => alsa::pcm::Format::U32BE,
-            // RawSampleFormat::U48(_) => alsa::pcm::Format::U48BE,
-            // RawSampleFormat::U64(_) => alsa::pcm::Format::U64BE,
-            RawSampleFormat::F32(_) => alsa::pcm::Format::FloatBE,
-            RawSampleFormat::F64(_) => alsa::pcm::Format::Float64BE,
-            sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!(
-                        "Sample format '{}' is not supported by this backend",
-                        sample_format
-                    ),
-                })
-            }
-        }
-    } else {
-        match sample_format {
-            RawSampleFormat::I8(_) => alsa::pcm::Format::S8,
-            RawSampleFormat::I16(_) => alsa::pcm::Format::S16LE,
-            // RawSampleFormat::I24(_) => alsa::pcm::Format::S24LE,
-            RawSampleFormat::I32(_) => alsa::pcm::Format::S32LE,
-            // RawSampleFormat::I48(_) => alsa::pcm::Format::S48LE,
-            // RawSampleFormat::I64(_) => alsa::pcm::Format::S64LE,
-            RawSampleFormat::U8(_) => alsa::pcm::Format::U8,
-            RawSampleFormat::U16(_) => alsa::pcm::Format::U16LE,
-            // RawSampleFormat::U24(_) => alsa::pcm::Format::U24LE,
-            RawSampleFormat::U32(_) => alsa::pcm::Format::U32LE,
-            // RawSampleFormat::U48(_) => alsa::pcm::Format::U48LE,
-            // RawSampleFormat::U64(_) => alsa::pcm::Format::U64LE,
-            RawSampleFormat::F32(_) => alsa::pcm::Format::FloatLE,
-            RawSampleFormat::F64(_) => alsa::pcm::Format::Float64LE,
-            sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!(
-                        "Sample format '{}' is not supported by this backend",
-                        sample_format
-                    ),
-                })
-            }
-        }
-    };
+//     let sample_format = if cfg!(target_endian = "big") {
+//         match sample_format {
+//             RawSampleFormat::I8(_) => alsa::pcm::Format::S8,
+//             RawSampleFormat::I16(_) => alsa::pcm::Format::S16BE,
+//             // RawSampleFormat::I24(_) => alsa::pcm::Format::S24BE,
+//             RawSampleFormat::I32(_) => alsa::pcm::Format::S32BE,
+//             // RawSampleFormat::I48(_) => alsa::pcm::Format::S48BE,
+//             // RawSampleFormat::I64(_) => alsa::pcm::Format::S64BE,
+//             RawSampleFormat::U8(_) => alsa::pcm::Format::U8,
+//             RawSampleFormat::U16(_) => alsa::pcm::Format::U16BE,
+//             // RawSampleFormat::U24(_) => alsa::pcm::Format::U24BE,
+//             RawSampleFormat::U32(_) => alsa::pcm::Format::U32BE,
+//             // RawSampleFormat::U48(_) => alsa::pcm::Format::U48BE,
+//             // RawSampleFormat::U64(_) => alsa::pcm::Format::U64BE,
+//             RawSampleFormat::F32(_) => alsa::pcm::Format::FloatBE,
+//             RawSampleFormat::F64(_) => alsa::pcm::Format::Float64BE,
+//             sample_format => {
+//                 return Err(BackendSpecificError {
+//                     description: format!(
+//                         "Sample format '{}' is not supported by this backend",
+//                         sample_format
+//                     ),
+//                 })
+//             }
+//         }
+//     } else {
+//         match sample_format {
+//             RawSampleFormat::I8(_) => alsa::pcm::Format::S8,
+//             RawSampleFormat::I16(_) => alsa::pcm::Format::S16LE,
+//             // RawSampleFormat::I24(_) => alsa::pcm::Format::S24LE,
+//             RawSampleFormat::I32(_) => alsa::pcm::Format::S32LE,
+//             // RawSampleFormat::I48(_) => alsa::pcm::Format::S48LE,
+//             // RawSampleFormat::I64(_) => alsa::pcm::Format::S64LE,
+//             RawSampleFormat::U8(_) => alsa::pcm::Format::U8,
+//             RawSampleFormat::U16(_) => alsa::pcm::Format::U16LE,
+//             // RawSampleFormat::U24(_) => alsa::pcm::Format::U24LE,
+//             RawSampleFormat::U32(_) => alsa::pcm::Format::U32LE,
+//             // RawSampleFormat::U48(_) => alsa::pcm::Format::U48LE,
+//             // RawSampleFormat::U64(_) => alsa::pcm::Format::U64LE,
+//             RawSampleFormat::F32(_) => alsa::pcm::Format::FloatLE,
+//             RawSampleFormat::F64(_) => alsa::pcm::Format::Float64LE,
+//             sample_format => {
+//                 return Err(BackendSpecificError {
+//                     description: format!(
+//                         "Sample format '{}' is not supported by this backend",
+//                         sample_format
+//                     ),
+//                 })
+//             }
+//         }
+//     };
 
-    hw_params.set_format(sample_format)?;
-    hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
-    hw_params.set_channels(config.channels as u32)?;
+//     hw_params.set_format(sample_format)?;
+//     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
+//     hw_params.set_channels(config.channels as u32)?;
 
-    match config.buffer_size {
-        BufferSize::Fixed(v) => {
-            hw_params.set_period_size_near((v / 4) as alsa::pcm::Frames, alsa::ValueOr::Nearest)?;
-            hw_params.set_buffer_size(v as alsa::pcm::Frames)?;
-        }
-        BufferSize::Default => {
-            // These values together represent a moderate latency and wakeup interval.
-            // Without them, we are at the mercy of the device
-            hw_params.set_period_time_near(25_000, alsa::ValueOr::Nearest)?;
-            hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest)?;
-        }
-    }
+//     match config.buffer_size {
+//         BufferSize::Fixed(v) => {
+//             hw_params.set_period_size_near((v / 4) as alsa::pcm::Frames, alsa::ValueOr::Nearest)?;
+//             hw_params.set_buffer_size(v as alsa::pcm::Frames)?;
+//         }
+//         BufferSize::Default => {
+//             // These values together represent a moderate latency and wakeup interval.
+//             // Without them, we are at the mercy of the device
+//             hw_params.set_period_time_near(25_000, alsa::ValueOr::Nearest)?;
+//             hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest)?;
+//         }
+//     }
 
-    pcm_handle.hw_params(&hw_params)?;
+//     pcm_handle.hw_params(&hw_params)?;
 
-    Ok(hw_params.can_pause())
-}
+//     Ok(hw_params.can_pause())
+// }
 
 fn set_hw_params_from_format_new(
     pcm_handle: &alsa::pcm::PCM,
