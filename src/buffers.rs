@@ -1,6 +1,6 @@
 use std::{mem::size_of, ops::Index, slice};
 
-use crate::{types::RawSample, ChannelCount, FrameCount, InputCallbackInfo, SizedSample};
+use crate::{types::RawSample, ChannelCount, FrameCount, OutputCallbackInfo, SizedSample};
 
 pub mod interleaved;
 pub mod separated;
@@ -18,7 +18,7 @@ pub struct SampleAddress {
 pub trait AudioSource: 'static + Send {
     type Item: SizedSample;
 
-    fn fill_buffer<B>(&mut self, buffer: B, info: &InputCallbackInfo)
+    fn fill_buffer<B>(&mut self, buffer: B, info: &OutputCallbackInfo)
     where
         B: SampleBufferMut<Item = Self::Item>;
 }
