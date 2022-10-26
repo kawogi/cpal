@@ -819,7 +819,7 @@ fn input_stream_worker_new<A>(
     let mut ctxt = StreamWorkerContext::new(&timeout);
     loop {
         let flow =
-            poll_descriptors_and_prepare_buffer_new(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
+            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
                 error_callback(err.into());
                 PollDescriptorsFlow::Continue
             });
@@ -925,93 +925,6 @@ enum PollDescriptorsFlow {
 
 // This block is shared between both input and output stream worker functions.
 fn poll_descriptors_and_prepare_buffer(
-    rx: &TriggerReceiver,
-    stream: &StreamInner,
-    ctxt: &mut StreamWorkerContext,
-) -> Result<PollDescriptorsFlow, BackendSpecificError> {
-    let StreamWorkerContext {
-        ref mut descriptors,
-        ref mut buffer,
-        ref poll_timeout,
-    } = *ctxt;
-
-    descriptors.clear();
-
-    // Add the self-pipe for signaling termination.
-    descriptors.push(libc::pollfd {
-        fd: rx.0,
-        events: libc::POLLIN,
-        revents: 0,
-    });
-
-    // Add ALSA polling fds.
-    let len = descriptors.len();
-    descriptors.resize(
-        stream.num_descriptors + len,
-        libc::pollfd {
-            fd: 0,
-            events: 0,
-            revents: 0,
-        },
-    );
-    let filled = stream.channel.fill(&mut descriptors[len..])?;
-    debug_assert_eq!(filled, stream.num_descriptors);
-
-    // Don't timeout, wait forever.
-    let res = alsa::poll::poll(descriptors, *poll_timeout)?;
-    if res == 0 {
-        let description = String::from("`alsa::poll()` spuriously returned");
-        return Err(BackendSpecificError { description });
-    }
-
-    if descriptors[0].revents != 0 {
-        // The stream has been requested to be destroyed.
-        rx.clear_pipe();
-        return Ok(PollDescriptorsFlow::Return);
-    }
-
-    let stream_type = match stream.channel.revents(&descriptors[1..])? {
-        alsa::poll::Flags::OUT => StreamType::Output,
-        alsa::poll::Flags::IN => StreamType::Input,
-        _ => {
-            // Nothing to process, poll again
-            return Ok(PollDescriptorsFlow::Continue);
-        }
-    };
-
-    let status = stream.channel.status()?;
-    let avail_frames = match stream.channel.avail() {
-        Err(err) if err.errno() == alsa::nix::errno::Errno::EPIPE => {
-            return Ok(PollDescriptorsFlow::XRun)
-        }
-        res => res,
-    }? as usize;
-    let delay_frames = match status.get_delay() {
-        // Buffer underrun. TODO: Notify the user.
-        d if d < 0 => 0,
-        d => d as usize,
-    };
-    let available_samples = avail_frames * stream.conf.channels as usize;
-
-    // Only go on if there is at least `stream.period_len` samples.
-    if available_samples < stream.period_len {
-        return Ok(PollDescriptorsFlow::Continue);
-    }
-
-    // Prepare the data buffer.
-    let buffer_size = stream.sample_format.sample_size() * available_samples;
-    buffer.resize(buffer_size, 0u8);
-
-    Ok(PollDescriptorsFlow::Ready {
-        stream_type,
-        status,
-        avail_frames,
-        delay_frames,
-    })
-}
-
-// This block is shared between both input and output stream worker functions.
-fn poll_descriptors_and_prepare_buffer_new(
     rx: &TriggerReceiver,
     stream: &StreamInner,
     ctxt: &mut StreamWorkerContext,
