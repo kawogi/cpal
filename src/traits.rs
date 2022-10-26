@@ -5,8 +5,8 @@ use std::time::Duration;
 use crate::{
     buffers::AudioSource, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
     DevicesError, InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices,
-    PauseStreamError, PlayStreamError, Sample, SampleFormat, StreamConfig, StreamError,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    PauseStreamError, PlayStreamError, Sample, StreamConfig, StreamError, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 /// A **Host** provides access to the available audio devices on the system.
@@ -155,12 +155,7 @@ pub trait DeviceTrait {
         A: AudioSource,
         E: FnMut(StreamError) + Send + 'static,
     {
-        self.build_output_stream_raw_new(
-            config,
-            audio_source,
-            error_callback,
-            timeout,
-        )
+        self.build_output_stream_raw_new(config, audio_source, error_callback, timeout)
     }
 
     /// Create an output stream.

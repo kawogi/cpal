@@ -223,8 +223,6 @@ pub enum BufferSize {
 }
 
 /// The set of parameters used to describe how to open a stream.
-///
-/// The sample format is omitted in favour of using a sample type.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamConfig {
     pub channels: ChannelCount,
