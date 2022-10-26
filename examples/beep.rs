@@ -8,7 +8,7 @@ use clap::arg;
 use cpal::{
     buffers::{AudioSource, SampleBufferMut},
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    ChannelCount, Device, Host, OutputCallbackInfo, Sample, SampleRate, StreamConfig, StreamError,
+    ChannelCount, Device, Host, OutputCallbackInfo, Sample, SampleRate, StreamConfig,
     SupportedStreamConfig, I24, U24,
 };
 use cpal::{FromSample, SampleFormat};
@@ -88,18 +88,18 @@ fn main_new() -> anyhow::Result<()> {
     println!("Sample format: {sample_format}");
 
     match sample_format {
-        SampleFormat::I8(_) => run::<i8>(&device, config),
-        SampleFormat::I16(_) => run::<i16>(&device, config),
-        SampleFormat::I24(_) => run::<I24>(&device, config),
-        SampleFormat::I32(_) => run::<i32>(&device, config),
-        SampleFormat::I64(_) => run::<i64>(&device, config),
-        SampleFormat::U8(_) => run::<u8>(&device, config),
-        SampleFormat::U16(_) => run::<u16>(&device, config),
-        SampleFormat::U24(_) => run::<U24>(&device, config),
-        SampleFormat::U32(_) => run::<u32>(&device, config),
-        SampleFormat::U64(_) => run::<u64>(&device, config),
-        SampleFormat::F32(_) => run::<f32>(&device, config),
-        SampleFormat::F64(_) => run::<f64>(&device, config),
+        SampleFormat::I8(_) => beep::<i8>(&device, config),
+        SampleFormat::I16(_) => beep::<i16>(&device, config),
+        SampleFormat::I24(_) => beep::<I24>(&device, config),
+        SampleFormat::I32(_) => beep::<i32>(&device, config),
+        SampleFormat::I64(_) => beep::<i64>(&device, config),
+        SampleFormat::U8(_) => beep::<u8>(&device, config),
+        SampleFormat::U16(_) => beep::<u16>(&device, config),
+        SampleFormat::U24(_) => beep::<U24>(&device, config),
+        SampleFormat::U32(_) => beep::<u32>(&device, config),
+        SampleFormat::U64(_) => beep::<u64>(&device, config),
+        SampleFormat::F32(_) => beep::<f32>(&device, config),
+        SampleFormat::F64(_) => beep::<f64>(&device, config),
         sample_format => panic!("Unsupported sample format {sample_format}'"),
     }
 }
@@ -146,7 +146,7 @@ impl<T: Sample + FromSample<f32>> AudioSource for Sinus<T> {
     }
 }
 
-fn run<T>(device: &cpal::Device, config: SupportedStreamConfig) -> Result<(), anyhow::Error>
+fn beep<T>(device: &cpal::Device, config: SupportedStreamConfig) -> Result<(), anyhow::Error>
 where
     T: Sample + FromSample<f32>,
 {
@@ -218,43 +218,36 @@ fn main_old() -> anyhow::Result<()> {
     let config = device.default_output_config().unwrap();
     println!("Default output config: {:?}", config);
 
-    let format = config.sample_format();
-    println!("Format: {format}");
+    let sample_format = config.sample_format();
+    println!("Format: {sample_format}");
 
-    let err = |err| eprintln!("an error occurred on stream: {}", err);
-
-    let rate = config.sample_rate();
-    let config = StreamConfig::from(config);
-
-    match format {
-        SampleFormat::I8(_) => run0::<i8, _>(&device, &config, Sinus::new(rate), err),
-        SampleFormat::I16(_) => run0::<i16, _>(&device, &config, Sinus::new(rate), err),
-        // RawSampleFormat::I24(_) => run_old::<I24, _>(&device, &config, Sinus::new(rate), err),
-        SampleFormat::I32(_) => run0::<i32, _>(&device, &config, Sinus::new(rate), err),
-        // RawSampleFormat::I48(_) => run_old::<I48, _>(&device, &config, Sinus::new(rate), err),
-        SampleFormat::I64(_) => run0::<i64, _>(&device, &config, Sinus::new(rate), err),
-        SampleFormat::U8(_) => run0::<u8, _>(&device, &config, Sinus::new(rate), err),
-        SampleFormat::U16(_) => run0::<u16, _>(&device, &config, Sinus::new(rate), err),
-        // RawSampleFormat::U24(_) => run_old::<U24, _>(&device, &config, Sinus::new(rate), err),
-        SampleFormat::U32(_) => run0::<u32, _>(&device, &config, Sinus::new(rate), err),
-        // RawSampleFormat::U48(_) => run_old::<U48, _>(&device, &config, Sinus::new(rate), err),
-        SampleFormat::U64(_) => run0::<u64, _>(&device, &config, Sinus::new(rate), err),
-        SampleFormat::F32(_) => run0::<f32, _>(&device, &config, Sinus::new(rate), err),
-        SampleFormat::F64(_) => run0::<f64, _>(&device, &config, Sinus::new(rate), err),
+    match sample_format {
+        SampleFormat::I8(_) => run0::<i8>(&device, config),
+        SampleFormat::I16(_) => run0::<i16>(&device, config),
+        // RawSampleFormat::I24(_) => run_old::<I24>(&device, config),
+        SampleFormat::I32(_) => run0::<i32>(&device, config),
+        // RawSampleFormat::I48(_) => run_old::<I48>(&device, config),
+        SampleFormat::I64(_) => run0::<i64>(&device, config),
+        SampleFormat::U8(_) => run0::<u8>(&device, config),
+        SampleFormat::U16(_) => run0::<u16>(&device, config),
+        // RawSampleFormat::U24(_) => run_old::<U24>(&device, config),
+        SampleFormat::U32(_) => run0::<u32>(&device, config),
+        // RawSampleFormat::U48(_) => run_old::<U48>(&device, config),
+        SampleFormat::U64(_) => run0::<u64>(&device, config),
+        SampleFormat::F32(_) => run0::<f32>(&device, config),
+        SampleFormat::F64(_) => run0::<f64>(&device, config),
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
 }
 
-fn run0<T, E>(
-    device: &cpal::Device,
-    config: &StreamConfig,
-    mut audio_source: Sinus<T>,
-    err_fn: E,
-) -> Result<(), anyhow::Error>
+fn run0<T>(device: &cpal::Device, config: SupportedStreamConfig) -> Result<(), anyhow::Error>
 where
     T: Sample + FromSample<f32>,
-    E: FnMut(StreamError) + Send + 'static,
 {
+    let config = StreamConfig::from(config);
+    let mut audio_source = Sinus::<T>::new(config.sample_rate);
+    let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
+
     let channels = config.channels as usize;
     let callback = move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
         println!(
@@ -270,7 +263,7 @@ where
         }
     };
 
-    let stream = device.build_output_stream(config, callback, err_fn, None)?;
+    let stream = device.build_output_stream(&config, callback, err_fn, None)?;
     stream.play()?;
 
     std::thread::sleep(std::time::Duration::from_millis(1000));
