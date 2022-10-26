@@ -18,16 +18,28 @@ pub enum RawFormat {
     BE4B,
 }
 
-impl RawFormat {
+impl super::RawFormat for RawFormat {
     #[inline]
     #[must_use]
-    pub fn sample_size(self) -> usize {
+    fn sample_size(self) -> usize {
         match self {
             Self::LE3B => mem::size_of::<LE3B>(),
             Self::BE3B => mem::size_of::<BE3B>(),
             Self::LE4B => mem::size_of::<LE4B>(),
             Self::BE4B => mem::size_of::<BE4B>(),
         }
+    }
+
+    #[inline]
+    #[must_use]
+    fn is_le(self) -> bool {
+        matches!(self, Self::LE3B | Self::LE4B)
+    }
+
+    #[inline]
+    #[must_use]
+    fn is_be(self) -> bool {
+        matches!(self, Self::BE3B | Self::BE4B)
     }
 }
 

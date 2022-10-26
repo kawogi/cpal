@@ -12,12 +12,36 @@ pub mod u64;
 pub mod u8;
 
 /// A single sample in its raw memory representation (`[u8; N]`).
-pub trait RawSample: Copy + From<Self::Primitive> + 'static
+pub trait RawSample: std::fmt::Debug + Copy + From<Self::Primitive> + 'static
 where
     Self::Primitive: From<Self>,
 {
     /// The _public facing_ type to use when converting from/to the raw byte representation. (e.g. `i16`, `I24`, `f32`)
     type Primitive: Copy;
+}
+
+pub trait RawFormat: Copy + Sized {
+    /// number of bytes the sample format occupies in a slice
+    #[must_use]
+    fn sample_size(self) -> usize;
+
+    /// Returns whether the sample format is little endian
+    #[must_use]
+    fn is_le(self) -> bool;
+
+    /// Returns whether the sample format is big endian
+    #[must_use]
+    fn is_be(self) -> bool;
+
+    /// Returns whether the sample format is in native endianness
+    #[inline]
+    #[must_use]
+    fn is_ne(self) -> bool {
+        #[cfg(target_endian = "little")]
+        return self.is_le();
+        #[cfg(target_endian = "big")]
+        return self.is_be();
+    }
 }
 
 // enum SampleBufferType {

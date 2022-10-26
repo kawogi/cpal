@@ -161,6 +161,8 @@ use std::convert::TryInto;
 use std::ops::{Div, Mul};
 use std::time::Duration;
 
+use crate::types::RawFormat;
+
 pub mod buffers;
 mod error;
 mod host;
@@ -642,11 +644,19 @@ impl SupportedStreamConfigRange {
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering::Equal;
 
+        // prefer native endianness
+        let cmp_endianness = self.sample_format.is_ne().cmp(&other.sample_format.is_ne());
+        if cmp_endianness != Equal {
+            return cmp_endianness;
+        }
+
+        // prefer stereo
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
         if cmp_stereo != Equal {
             return cmp_stereo;
         }
 
+        // prefer mono
         let cmp_mono = (self.channels == 1).cmp(&(other.channels == 1));
         if cmp_mono != Equal {
             return cmp_mono;
@@ -657,18 +667,21 @@ impl SupportedStreamConfigRange {
             return cmp_channels;
         }
 
+        // prefer f32
         let cmp_f32 = matches!(self.sample_format, RawSampleFormat::F32(_))
             .cmp(&matches!(other.sample_format, RawSampleFormat::F32(_)));
         if cmp_f32 != Equal {
             return cmp_f32;
         }
 
+        // prefer i16
         let cmp_i16 = matches!(self.sample_format, RawSampleFormat::I16(_))
             .cmp(&matches!(other.sample_format, RawSampleFormat::I16(_)));
         if cmp_i16 != Equal {
             return cmp_i16;
         }
 
+        // prefer u16
         let cmp_u16 = matches!(self.sample_format, RawSampleFormat::U16(_))
             .cmp(&matches!(other.sample_format, RawSampleFormat::U16(_)));
         if cmp_u16 != Equal {

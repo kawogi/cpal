@@ -15,14 +15,26 @@ pub enum RawFormat {
     BE,
 }
 
-impl RawFormat {
+impl super::RawFormat for RawFormat {
     #[inline]
     #[must_use]
-    pub fn sample_size(self) -> usize {
+    fn sample_size(self) -> usize {
         match self {
             Self::LE => mem::size_of::<LE>(),
             Self::BE => mem::size_of::<BE>(),
         }
+    }
+
+    #[inline]
+    #[must_use]
+    fn is_le(self) -> bool {
+        matches!(self, Self::LE)
+    }
+
+    #[inline]
+    #[must_use]
+    fn is_be(self) -> bool {
+        matches!(self, Self::BE)
     }
 }
 
@@ -36,7 +48,7 @@ impl Display for RawFormat {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(transparent)]
 pub struct LE([u8; 2]);
 
@@ -62,7 +74,7 @@ impl RawSample for LE {
     type Primitive = Primitive;
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(transparent)]
 pub struct BE([u8; 2]);
 

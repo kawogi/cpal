@@ -1,10 +1,11 @@
-use std::{fmt::Display, mem};
+use std::fmt::Display;
 
 pub use dasp_sample::{FromSample, Sample, I24, I48, U24, U48};
 
 use crate::{
     buffers::{SampleBuffer, SampleBufferMut},
-    types, ChannelCount, FrameCount,
+    types::{self, RawFormat},
+    ChannelCount, FrameCount,
 };
 
 /// Format that each sample type has in memory.
@@ -52,11 +53,11 @@ pub enum RawSampleFormat {
     F64(types::f64::RawFormat),
 }
 
-impl RawSampleFormat {
+impl RawFormat for RawSampleFormat {
     /// Returns the size in bytes of a sample of this format.
     #[inline]
     #[must_use]
-    pub fn sample_size(self) -> usize {
+    fn sample_size(self) -> usize {
         match self {
             Self::I8(format) => format.sample_size(),
             Self::I16(format) => format.sample_size(),
@@ -70,6 +71,63 @@ impl RawSampleFormat {
             Self::U64(format) => format.sample_size(),
             Self::F32(format) => format.sample_size(),
             Self::F64(format) => format.sample_size(),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    fn is_le(self) -> bool {
+        match self {
+            Self::I8(format) => format.is_le(),
+            Self::I16(format) => format.is_le(),
+            Self::I24(format) => format.is_le(),
+            Self::I32(format) => format.is_le(),
+            Self::I64(format) => format.is_le(),
+            Self::U8(format) => format.is_le(),
+            Self::U16(format) => format.is_le(),
+            Self::U24(format) => format.is_le(),
+            Self::U32(format) => format.is_le(),
+            Self::U64(format) => format.is_le(),
+            Self::F32(format) => format.is_le(),
+            Self::F64(format) => format.is_le(),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    fn is_be(self) -> bool {
+        match self {
+            Self::I8(format) => format.is_be(),
+            Self::I16(format) => format.is_be(),
+            Self::I24(format) => format.is_be(),
+            Self::I32(format) => format.is_be(),
+            Self::I64(format) => format.is_be(),
+            Self::U8(format) => format.is_be(),
+            Self::U16(format) => format.is_be(),
+            Self::U24(format) => format.is_be(),
+            Self::U32(format) => format.is_be(),
+            Self::U64(format) => format.is_be(),
+            Self::F32(format) => format.is_be(),
+            Self::F64(format) => format.is_be(),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    fn is_ne(self) -> bool {
+        match self {
+            Self::I8(format) => format.is_ne(),
+            Self::I16(format) => format.is_ne(),
+            Self::I24(format) => format.is_ne(),
+            Self::I32(format) => format.is_ne(),
+            Self::I64(format) => format.is_ne(),
+            Self::U8(format) => format.is_ne(),
+            Self::U16(format) => format.is_ne(),
+            Self::U24(format) => format.is_ne(),
+            Self::U32(format) => format.is_ne(),
+            Self::U64(format) => format.is_ne(),
+            Self::F32(format) => format.is_ne(),
+            Self::F64(format) => format.is_ne(),
         }
     }
 }
@@ -231,7 +289,8 @@ impl Display for RawSampleFormat {
 
 // TODO review name. Should be "Sample with format descriptor"
 // TODO split into two traits. `BufferFactory` would make sense
-pub trait SizedSample: Sample + Send + 'static {
+// TODO `Display` should be required as well, but `dasp_sample` doesn't implement that trait
+pub trait SizedSample: std::fmt::Debug + Sample + Send + 'static {
     //const FORMAT: SampleFormat;
 
     type RawFormat;
