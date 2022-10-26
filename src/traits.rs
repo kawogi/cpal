@@ -170,6 +170,7 @@ pub trait DeviceTrait {
     fn build_output_stream<T, D, E>(
         &self,
         config: &StreamConfig,
+        sample_format: RawSampleFormat,
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -181,7 +182,7 @@ pub trait DeviceTrait {
     {
         self.build_output_stream_raw(
             config,
-            RawSampleFormat::F32(types::f32::RawFormat::LE), // T::FORMAT, FIXME!!!
+            sample_format,
             move |data, info| {
                 data_callback(
                     data.as_slice_mut()
