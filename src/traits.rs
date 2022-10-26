@@ -3,11 +3,10 @@
 use std::time::Duration;
 
 use crate::{
-    buffers::AudioSource, samples_formats::RawSampleFormat, BuildStreamError, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, InputDevices,
-    OutputCallbackInfo, OutputDevices, PauseStreamError, PlayStreamError, SampleFormat,
-    SizedSample, StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    buffers::AudioSource, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
+    DevicesError, InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices,
+    PauseStreamError, PlayStreamError, SampleFormat, SizedSample, StreamConfig, StreamError,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 /// A **Host** provides access to the available audio devices on the system.
@@ -158,15 +157,7 @@ pub trait DeviceTrait {
         A: AudioSource,
         E: FnMut(StreamError) + Send + 'static,
     {
-        self.build_output_stream_raw_new(
-            config,
-            //RawSampleFormat::F32BE, // FIXME this needs to be derived from T/A
-            //T::FORMAT,
-            //move |data, info| audio_source.fill_buffer(data),
-            audio_source,
-            error_callback,
-            timeout,
-        )
+        self.build_output_stream_raw_new(config, audio_source, error_callback, timeout)
     }
 
     /// Create an output stream.
@@ -241,7 +232,6 @@ pub trait DeviceTrait {
     fn build_output_stream_raw_new<A, E>(
         &self,
         config: &StreamConfig,
-        //sample_format: RawSampleFormat,
         audio_source: A,
         error_callback: E,
         timeout: Option<Duration>,

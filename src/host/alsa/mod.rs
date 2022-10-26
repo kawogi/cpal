@@ -128,10 +128,11 @@ impl DeviceTrait for Device {
         // FIXME this need to be deduced somehow
         let a = 0; // ← warning
         let sample_format = RawSampleFormat::F32(types::f32::RawFormat::LE);
+        println!("{}", <A as AudioSource>::Item::FORMAT);
 
         let stream_inner =
             self.build_stream_inner_new(conf, sample_format, alsa::Direction::Capture)?;
-        let stream = Stream::new_input_new(
+        let stream = StreamNew::new_input(
             Arc::new(stream_inner),
             audio_source,
             error_callback,
@@ -1412,38 +1413,6 @@ impl Stream {
         }
     }
 
-    fn new_input_new<A, E>(
-        inner: Arc<StreamInnerNew>,
-        mut data_callback: A,
-        mut error_callback: E,
-        timeout: Option<Duration>,
-    ) -> StreamNew
-    where
-        A: AudioSource, //FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
-    {
-        let (tx, rx) = trigger();
-        // Clone the handle for passing into worker thread.
-        let stream = inner.clone();
-        let thread = thread::Builder::new()
-            .name("cpal_alsa_in".to_owned())
-            .spawn(move || {
-                input_stream_worker_new(
-                    rx,
-                    &stream,
-                    &mut data_callback,
-                    &mut error_callback,
-                    timeout,
-                );
-            })
-            .unwrap();
-        StreamNew {
-            thread: Some(thread),
-            inner,
-            trigger: tx,
-        }
-    }
-
     fn new_output<D, E>(
         inner: Arc<StreamInner>,
         mut data_callback: D,
@@ -1470,6 +1439,40 @@ impl Stream {
             })
             .unwrap();
         Stream {
+            thread: Some(thread),
+            inner,
+            trigger: tx,
+        }
+    }
+}
+
+impl StreamNew {
+    fn new_input<A, E>(
+        inner: Arc<StreamInnerNew>,
+        mut data_callback: A,
+        mut error_callback: E,
+        timeout: Option<Duration>,
+    ) -> StreamNew
+    where
+        A: AudioSource, //FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let (tx, rx) = trigger();
+        // Clone the handle for passing into worker thread.
+        let stream = inner.clone();
+        let thread = thread::Builder::new()
+            .name("cpal_alsa_in".to_owned())
+            .spawn(move || {
+                input_stream_worker_new(
+                    rx,
+                    &stream,
+                    &mut data_callback,
+                    &mut error_callback,
+                    timeout,
+                );
+            })
+            .unwrap();
+        StreamNew {
             thread: Some(thread),
             inner,
             trigger: tx,
