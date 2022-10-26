@@ -8,8 +8,8 @@ use clap::arg;
 use cpal::{
     buffers::{AudioSource, SampleBufferMut},
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    BufferFactory, ChannelCount, Device, Host, OutputCallbackInfo, Sample, SampleRate,
-    StreamConfig, StreamError, I24, U24,
+    ChannelCount, Device, Host, OutputCallbackInfo, Sample, SampleRate, StreamConfig, StreamError,
+    SupportedStreamConfig, I24, U24,
 };
 use cpal::{FromSample, SampleFormat};
 
@@ -56,7 +56,7 @@ impl Opt {
         ))]
         return Opt {
             jack: matches.is_present("jack"),
-            device,
+            get_default_output_device,
         };
 
         #[cfg(any(
@@ -78,68 +78,29 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn main_new() -> anyhow::Result<()> {
-    let device = device()?;
+    let device = get_default_output_device()?;
     println!("Output device: {}", device.name()?);
 
     let config = device.default_output_config().unwrap();
     println!("Default output config: {:?}", config);
 
-    let format = config.sample_format();
-    println!("Format: {format}");
+    let sample_format = config.sample_format();
+    println!("Sample format: {sample_format}");
 
-    let err = |err| eprintln!("an error occurred on stream: {}", err);
-
-    let rate = config.sample_rate();
-    let config = StreamConfig::from(config);
-
-    match format {
-        SampleFormat::I8(_) => run::<i8, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::I16(_) => run::<i16, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::I24(_) => run::<I24, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::I32(_) => run::<i32, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::I64(_) => run::<i64, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::U8(_) => run::<u8, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::U16(_) => run::<u16, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::U24(_) => run::<U24, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::U32(_) => run::<u32, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::U64(_) => run::<u64, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::F32(_) => run::<f32, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::F64(_) => run::<f64, _>(&device, &config, format, Sinus::new(rate), err),
-        sample_format => panic!("Unsupported sample format '{sample_format}'"),
-    }
-}
-
-fn main_old() -> anyhow::Result<()> {
-    let device = device()?;
-    println!("Output device: {}", device.name()?);
-
-    let config = device.default_output_config().unwrap();
-    println!("Default output config: {:?}", config);
-
-    let format = config.sample_format();
-    println!("Format: {format}");
-
-    let err = |err| eprintln!("an error occurred on stream: {}", err);
-
-    let rate = config.sample_rate();
-    let config = StreamConfig::from(config);
-
-    match format {
-        SampleFormat::I8(_) => run0::<i8, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::I16(_) => run0::<i16, _>(&device, &config, format, Sinus::new(rate), err),
-        // RawSampleFormat::I24(_) => run_old::<I24, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::I32(_) => run0::<i32, _>(&device, &config, format, Sinus::new(rate), err),
-        // RawSampleFormat::I48(_) => run_old::<I48, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::I64(_) => run0::<i64, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::U8(_) => run0::<u8, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::U16(_) => run0::<u16, _>(&device, &config, format, Sinus::new(rate), err),
-        // RawSampleFormat::U24(_) => run_old::<U24, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::U32(_) => run0::<u32, _>(&device, &config, format, Sinus::new(rate), err),
-        // RawSampleFormat::U48(_) => run_old::<U48, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::U64(_) => run0::<u64, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::F32(_) => run0::<f32, _>(&device, &config, format, Sinus::new(rate), err),
-        SampleFormat::F64(_) => run0::<f64, _>(&device, &config, format, Sinus::new(rate), err),
-        sample_format => panic!("Unsupported sample format '{sample_format}'"),
+    match sample_format {
+        SampleFormat::I8(_) => run::<i8>(&device, config),
+        SampleFormat::I16(_) => run::<i16>(&device, config),
+        SampleFormat::I24(_) => run::<I24>(&device, config),
+        SampleFormat::I32(_) => run::<i32>(&device, config),
+        SampleFormat::I64(_) => run::<i64>(&device, config),
+        SampleFormat::U8(_) => run::<u8>(&device, config),
+        SampleFormat::U16(_) => run::<u16>(&device, config),
+        SampleFormat::U24(_) => run::<U24>(&device, config),
+        SampleFormat::U32(_) => run::<u32>(&device, config),
+        SampleFormat::U64(_) => run::<u64>(&device, config),
+        SampleFormat::F32(_) => run::<f32>(&device, config),
+        SampleFormat::F64(_) => run::<f64>(&device, config),
+        sample_format => panic!("Unsupported sample format {sample_format}'"),
     }
 }
 
@@ -185,19 +146,15 @@ impl<T: Sample + FromSample<f32>> AudioSource for Sinus<T> {
     }
 }
 
-fn run<T, E>(
-    device: &cpal::Device,
-    config: &StreamConfig,
-    sample_format: SampleFormat,
-    audio_source: Sinus<T>,
-    err_fn: E,
-) -> Result<(), anyhow::Error>
+fn run<T>(device: &cpal::Device, config: SupportedStreamConfig) -> Result<(), anyhow::Error>
 where
     T: Sample + FromSample<f32>,
-    E: FnMut(StreamError) + Send + 'static,
 {
-    let stream =
-        device.build_output_stream_new(config, sample_format, audio_source, err_fn, None)?;
+    let config = StreamConfig::from(config);
+    let audio_source = Sinus::<T>::new(config.sample_rate);
+    let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
+
+    let stream = device.build_output_stream_new(&config, audio_source, err_fn, None)?;
     stream.play()?;
 
     std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -205,43 +162,9 @@ where
     Ok(())
 }
 
-fn run0<T, E>(
-    device: &cpal::Device,
-    config: &StreamConfig,
-    sample_format: SampleFormat,
-    mut audio_source: Sinus<T>,
-    err_fn: E,
-) -> Result<(), anyhow::Error>
-where
-    T: Sample + FromSample<f32>,
-    E: FnMut(StreamError) + Send + 'static,
-{
-    let channels = config.channels as usize;
-    let callback = move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-        println!(
-            "fill_buffer: frames {}, channels {channels}",
-            data.len() / channels
-        );
-
-        for frame in data.chunks_mut(channels) {
-            let value: T = audio_source.next();
-            for sample in frame.iter_mut() {
-                *sample = value;
-            }
-        }
-    };
-
-    let stream = device.build_output_stream(config, sample_format, callback, err_fn, None)?;
-    stream.play()?;
-
-    std::thread::sleep(std::time::Duration::from_millis(1000));
-
-    Ok(())
-}
-
-fn device() -> Result<Device, anyhow::Error> {
+fn get_default_output_device() -> Result<Device, anyhow::Error> {
     let opt = Opt::from_args();
-    let host = host();
+    let host = get_default_host();
 
     Ok(if opt.device == "default" {
         host.default_output_device()
@@ -252,7 +175,7 @@ fn device() -> Result<Device, anyhow::Error> {
     .expect("failed to find output device"))
 }
 
-fn host() -> Host {
+fn get_default_host() -> Host {
     // Conditionally compile with jack if the feature is specified.
     #[cfg(all(
         any(
@@ -286,4 +209,71 @@ fn host() -> Host {
         not(feature = "jack")
     ))]
     cpal::default_host()
+}
+
+fn main_old() -> anyhow::Result<()> {
+    let device = get_default_output_device()?;
+    println!("Output device: {}", device.name()?);
+
+    let config = device.default_output_config().unwrap();
+    println!("Default output config: {:?}", config);
+
+    let format = config.sample_format();
+    println!("Format: {format}");
+
+    let err = |err| eprintln!("an error occurred on stream: {}", err);
+
+    let rate = config.sample_rate();
+    let config = StreamConfig::from(config);
+
+    match format {
+        SampleFormat::I8(_) => run0::<i8, _>(&device, &config, Sinus::new(rate), err),
+        SampleFormat::I16(_) => run0::<i16, _>(&device, &config, Sinus::new(rate), err),
+        // RawSampleFormat::I24(_) => run_old::<I24, _>(&device, &config, Sinus::new(rate), err),
+        SampleFormat::I32(_) => run0::<i32, _>(&device, &config, Sinus::new(rate), err),
+        // RawSampleFormat::I48(_) => run_old::<I48, _>(&device, &config, Sinus::new(rate), err),
+        SampleFormat::I64(_) => run0::<i64, _>(&device, &config, Sinus::new(rate), err),
+        SampleFormat::U8(_) => run0::<u8, _>(&device, &config, Sinus::new(rate), err),
+        SampleFormat::U16(_) => run0::<u16, _>(&device, &config, Sinus::new(rate), err),
+        // RawSampleFormat::U24(_) => run_old::<U24, _>(&device, &config, Sinus::new(rate), err),
+        SampleFormat::U32(_) => run0::<u32, _>(&device, &config, Sinus::new(rate), err),
+        // RawSampleFormat::U48(_) => run_old::<U48, _>(&device, &config, Sinus::new(rate), err),
+        SampleFormat::U64(_) => run0::<u64, _>(&device, &config, Sinus::new(rate), err),
+        SampleFormat::F32(_) => run0::<f32, _>(&device, &config, Sinus::new(rate), err),
+        SampleFormat::F64(_) => run0::<f64, _>(&device, &config, Sinus::new(rate), err),
+        sample_format => panic!("Unsupported sample format '{sample_format}'"),
+    }
+}
+
+fn run0<T, E>(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    mut audio_source: Sinus<T>,
+    err_fn: E,
+) -> Result<(), anyhow::Error>
+where
+    T: Sample + FromSample<f32>,
+    E: FnMut(StreamError) + Send + 'static,
+{
+    let channels = config.channels as usize;
+    let callback = move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+        println!(
+            "fill_buffer: frames {}, channels {channels}",
+            data.len() / channels
+        );
+
+        for frame in data.chunks_mut(channels) {
+            let value: T = audio_source.next();
+            for sample in frame.iter_mut() {
+                *sample = value;
+            }
+        }
+    };
+
+    let stream = device.build_output_stream(config, callback, err_fn, None)?;
+    stream.play()?;
+
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    Ok(())
 }

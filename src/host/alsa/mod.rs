@@ -94,8 +94,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        conf: &StreamConfig,
-        sample_format: SampleFormat,
+        config: &StreamConfig,
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -104,8 +103,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner =
-            self.build_stream_inner(conf, sample_format, alsa::Direction::Capture)?;
+        let stream_inner = self.build_stream_inner(config, alsa::Direction::Capture)?;
         let stream = Stream::new_input(
             Arc::new(stream_inner),
             data_callback,
@@ -117,8 +115,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw_new<A, E>(
         &self,
-        conf: &StreamConfig,
-        sample_format: SampleFormat,
+        config: &StreamConfig,
         audio_source: A,
         error_callback: E,
         timeout: Option<std::time::Duration>,
@@ -127,8 +124,7 @@ impl DeviceTrait for Device {
         A: AudioSource,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner =
-            self.build_stream_inner(conf, sample_format, alsa::Direction::Playback)?;
+        let stream_inner = self.build_stream_inner(config, alsa::Direction::Playback)?;
         let stream = Stream::new_output_new(
             Arc::new(stream_inner),
             audio_source,
@@ -140,8 +136,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        conf: &StreamConfig,
-        sample_format: SampleFormat,
+        config: &StreamConfig,
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -150,8 +145,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner =
-            self.build_stream_inner(conf, sample_format, alsa::Direction::Playback)?;
+        let stream_inner = self.build_stream_inner(config, alsa::Direction::Playback)?;
         let stream = Stream::new_output(
             Arc::new(stream_inner),
             data_callback,
@@ -272,8 +266,7 @@ pub struct Device {
 impl Device {
     fn build_stream_inner(
         &self,
-        conf: &StreamConfig,
-        sample_format: SampleFormat,
+        config: &StreamConfig,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, BuildStreamError> {
         let handle_result = self
@@ -292,8 +285,8 @@ impl Device {
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
         };
-        let can_pause = set_hw_params_from_format(&handle, conf, sample_format)?;
-        let period_len = set_sw_params_from_format(&handle, conf, stream_type)?;
+        let can_pause = set_hw_params_from_format(&handle, config)?;
+        let period_len = set_sw_params_from_format(&handle, config, stream_type)?;
 
         handle.prepare()?;
 
@@ -318,9 +311,8 @@ impl Device {
 
         let stream_inner = StreamInner {
             channel: handle,
-            sample_format,
             num_descriptors,
-            conf: conf.clone(),
+            config: config.clone(),
             period_len,
             can_pause,
             creation_instant,
@@ -603,11 +595,8 @@ struct StreamInner {
     // file descriptors that this `snd_pcm_t` uses.
     num_descriptors: usize,
 
-    // Format of the samples.
-    sample_format: SampleFormat,
-
     // The configuration used to open this stream.
-    conf: StreamConfig,
+    config: StreamConfig,
 
     // Minimum number of samples to put in the buffer.
     period_len: usize,
@@ -906,7 +895,7 @@ fn poll_descriptors_and_prepare_buffer(
         d if d < 0 => 0,
         d => d as usize,
     };
-    let available_samples = avail_frames * stream.conf.channels as usize;
+    let available_samples = avail_frames * stream.config.channels as usize;
 
     // Only go on if there is at least `stream.period_len` samples.
     if available_samples < stream.period_len {
@@ -914,7 +903,7 @@ fn poll_descriptors_and_prepare_buffer(
     }
 
     // Prepare the data buffer.
-    let buffer_size = stream.sample_format.sample_size() * available_samples;
+    let buffer_size = stream.config.sample_format.sample_size() * available_samples;
     buffer.resize(buffer_size, 0u8);
 
     Ok(PollDescriptorsFlow::Ready {
@@ -942,12 +931,12 @@ fn process_input(
         });
     //stream.channel.io_bytes().readi(buffer)?;
     println!("frame count: {frame_count}");
-    let sample_format = stream.sample_format;
+    let sample_format = stream.config.sample_format;
     let data = buffer.as_mut_ptr() as *mut ();
     let len = buffer.len() / sample_format.sample_size();
     let data = unsafe { Data::from_parts(data, len, sample_format) };
     let callback = stream_timestamp(&status, stream.creation_instant)?;
-    let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
+    let delay_duration = frames_to_duration(delay_frames, stream.config.sample_rate);
     let capture = callback
         .sub(delay_duration)
         .expect("`capture` is earlier than representation supported by `StreamInstant`");
@@ -972,12 +961,12 @@ fn process_output(
 ) -> Result<(), BackendSpecificError> {
     {
         // We're now sure that we're ready to write data.
-        let sample_format = stream.sample_format;
+        let sample_format = stream.config.sample_format;
         let data = buffer.as_mut_ptr() as *mut ();
         let len = buffer.len() / sample_format.sample_size();
         let mut data = unsafe { Data::from_parts(data, len, sample_format) };
         let callback = stream_timestamp(&status, stream.creation_instant)?;
-        let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
+        let delay_duration = frames_to_duration(delay_frames, stream.config.sample_rate);
         let playback = callback
             .add(delay_duration)
             .expect("`playback` occurs beyond representation supported by `StreamInstant`");
@@ -1028,16 +1017,16 @@ where
     {
         // We're now sure that we're ready to write data.
         let callback = stream_timestamp(&status, stream.creation_instant)?;
-        let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
+        let delay_duration = frames_to_duration(delay_frames, stream.config.sample_rate);
         let playback = callback
             .add(delay_duration)
             .expect("`playback` occurs beyond representation supported by `StreamInstant`");
         let timestamp = crate::OutputStreamTimestamp { callback, playback };
         let info = crate::OutputCallbackInfo { timestamp };
 
-        let sample_format = stream.sample_format;
+        let sample_format = stream.config.sample_format;
         let sample_count = buffer.len() / sample_format.sample_size();
-        let channel_count = stream.conf.channels;
+        let channel_count = stream.config.channels;
         let frame_count = (sample_count / usize::from(channel_count)) as FrameCount;
 
         match sample_format {
@@ -1361,14 +1350,13 @@ impl StreamTrait for Stream {
 fn set_hw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
-    sample_format: SampleFormat,
 ) -> Result<bool, BackendSpecificError> {
     use alsa::pcm::Format;
 
     let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
-    let sample_format = match sample_format {
+    let sample_format = match config.sample_format {
         SampleFormat::I8(<i8 as Sample>::Encoding::NE) => Format::S8,
         SampleFormat::I16(<i16 as Sample>::Encoding::LE) => Format::S16LE,
         SampleFormat::I16(<i16 as Sample>::Encoding::BE) => Format::S16BE,

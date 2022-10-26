@@ -120,7 +120,6 @@ pub trait DeviceTrait {
     fn build_input_stream<T, D, E>(
         &self,
         config: &StreamConfig,
-        sample_format: SampleFormat,
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -132,7 +131,6 @@ pub trait DeviceTrait {
     {
         self.build_input_stream_raw(
             config,
-            sample_format,
             move |data, info| {
                 data_callback(
                     data.as_slice()
@@ -149,7 +147,6 @@ pub trait DeviceTrait {
     fn build_output_stream_new<A, E>(
         &self,
         config: &StreamConfig,
-        sample_format: SampleFormat,
         audio_source: A,
         error_callback: E,
         timeout: Option<Duration>,
@@ -160,7 +157,6 @@ pub trait DeviceTrait {
     {
         self.build_output_stream_raw_new(
             config,
-            sample_format,
             audio_source,
             error_callback,
             timeout,
@@ -171,7 +167,6 @@ pub trait DeviceTrait {
     fn build_output_stream<T, D, E>(
         &self,
         config: &StreamConfig,
-        sample_format: SampleFormat,
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -183,7 +178,6 @@ pub trait DeviceTrait {
     {
         self.build_output_stream_raw(
             config,
-            sample_format,
             move |data, info| {
                 data_callback(
                     data.as_slice_mut()
@@ -200,7 +194,6 @@ pub trait DeviceTrait {
     fn build_input_stream_raw<D, E>(
         &self,
         config: &StreamConfig,
-        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -209,25 +202,10 @@ pub trait DeviceTrait {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 
-    // /// Create a dynamically typed input stream.
-    // fn build_input_stream_raw_new<B, D, E>(
-    //     &self,
-    //     config: &StreamConfig,
-    //     sample_format: SampleFormat,
-    //     data_callback: D,
-    //     error_callback: E,
-    //     timeout: Option<Duration>,
-    // ) -> Result<Self::Stream, BuildStreamError>
-    // where
-    //     B: for<'buffer> SampleBufferMut<'buffer>, // SizedSample + FromSample<f32>,
-    //     D: FnMut(B, &InputCallbackInfo) + Send + 'static,
-    //     E: FnMut(StreamError) + Send + 'static;
-
     /// Create a dynamically typed output stream.
     fn build_output_stream_raw<D, E>(
         &self,
         config: &StreamConfig,
-        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -240,7 +218,6 @@ pub trait DeviceTrait {
     fn build_output_stream_raw_new<A, E>(
         &self,
         config: &StreamConfig,
-        sample_format: SampleFormat,
         audio_source: A,
         error_callback: E,
         timeout: Option<Duration>,
