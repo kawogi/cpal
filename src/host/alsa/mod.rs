@@ -7,6 +7,7 @@ use self::parking_lot::Mutex;
 use crate::buffers::AudioSource;
 use crate::samples_formats::RawSampleFormat;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
+use crate::types::RawFormat;
 use crate::{
     types, BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
