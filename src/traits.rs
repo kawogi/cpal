@@ -92,7 +92,6 @@ pub trait DeviceTrait {
     type SupportedOutputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The stream type created by `build_input_stream_raw` and `build_output_stream_raw`.
     type Stream: StreamTrait;
-    type StreamNew: StreamTrait;
 
     /// The human-readable name of the device.
     fn name(&self) -> Result<String, DeviceNameError>;
@@ -153,7 +152,7 @@ pub trait DeviceTrait {
         audio_source: A,
         error_callback: E,
         timeout: Option<Duration>,
-    ) -> Result<Self::StreamNew, BuildStreamError>
+    ) -> Result<Self::Stream, BuildStreamError>
     where
         A: AudioSource,
         E: FnMut(StreamError) + Send + 'static,
@@ -243,7 +242,7 @@ pub trait DeviceTrait {
         audio_source: A,
         error_callback: E,
         timeout: Option<Duration>,
-    ) -> Result<Self::StreamNew, BuildStreamError>
+    ) -> Result<Self::Stream, BuildStreamError>
     where
         A: AudioSource,
         E: FnMut(StreamError) + Send + 'static;

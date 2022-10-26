@@ -65,7 +65,6 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
-    type StreamNew = StreamNew;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
@@ -121,14 +120,14 @@ impl DeviceTrait for Device {
         audio_source: A,
         error_callback: E,
         timeout: Option<std::time::Duration>,
-    ) -> Result<Self::StreamNew, BuildStreamError>
+    ) -> Result<Self::Stream, BuildStreamError>
     where
         A: AudioSource,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner =
             self.build_stream_inner_new(conf, sample_format, alsa::Direction::Capture)?;
-        let stream = StreamNew::new_input(
+        let stream = Stream::new_input_new(
             Arc::new(stream_inner),
             audio_source,
             error_callback,
@@ -725,18 +724,6 @@ enum StreamType {
 }
 
 pub struct Stream {
-    /// The high-priority audio processing thread calling callbacks.
-    /// Option used for moving out in destructor.
-    thread: Option<JoinHandle<()>>,
-
-    /// Handle to the underlying stream for playback controls.
-    inner: Arc<StreamInner>,
-
-    /// Used to signal to stop processing.
-    trigger: TriggerSender,
-}
-
-pub struct StreamNew {
     /// The high-priority audio processing thread calling callbacks.
     /// Option used for moving out in destructor.
     thread: Option<JoinHandle<()>>,
@@ -1495,15 +1482,13 @@ impl Stream {
             trigger: tx,
         }
     }
-}
 
-impl StreamNew {
-    fn new_input<A, E>(
+    fn new_input_new<A, E>(
         inner: Arc<StreamInner>,
         mut data_callback: A,
         mut error_callback: E,
         timeout: Option<Duration>,
-    ) -> StreamNew
+    ) -> Stream
     where
         A: AudioSource, //FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
@@ -1523,7 +1508,7 @@ impl StreamNew {
                 );
             })
             .unwrap();
-        StreamNew {
+        Stream {
             thread: Some(thread),
             inner,
             trigger: tx,
@@ -1539,24 +1524,6 @@ impl Drop for Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        self.inner.channel.pause(false).ok();
-        Ok(())
-    }
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        self.inner.channel.pause(true).ok();
-        Ok(())
-    }
-}
-
-impl Drop for StreamNew {
-    fn drop(&mut self) {
-        self.trigger.wakeup();
-        self.thread.take().unwrap().join().unwrap();
-    }
-}
-
-impl StreamTrait for StreamNew {
     fn play(&self) -> Result<(), PlayStreamError> {
         self.inner.channel.pause(false).ok();
         Ok(())

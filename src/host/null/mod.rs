@@ -19,8 +19,6 @@ pub struct Host;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Stream;
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StreamNew;
 
 pub struct SupportedInputConfigs;
 pub struct SupportedOutputConfigs;
@@ -42,7 +40,6 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
-    type StreamNew = StreamNew;
 
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
@@ -95,7 +92,7 @@ impl DeviceTrait for Device {
         _audio_source: A,
         _error_callback: E,
         _timeout: Option<std::time::Duration>,
-    ) -> Result<Self::StreamNew, BuildStreamError>
+    ) -> Result<Self::Stream, BuildStreamError>
     where
         A: AudioSource,
         E: FnMut(StreamError) + Send + 'static,
@@ -142,16 +139,6 @@ impl HostTrait for Host {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        unimplemented!()
-    }
-
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        unimplemented!()
-    }
-}
-
-impl StreamTrait for StreamNew {
     fn play(&self) -> Result<(), PlayStreamError> {
         unimplemented!()
     }
