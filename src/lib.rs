@@ -156,9 +156,7 @@ pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
-pub use samples_formats::{
-    FromSample, RawSampleFormat, Sample, SampleFormat, SizedSample, I24, I48, U24, U48,
-};
+pub use samples_formats::{FromSample, RawSampleFormat, Sample, SizedSample, I24, I48, U24, U48};
 use std::convert::TryInto;
 use std::ops::{Div, Mul};
 use std::time::Duration;
@@ -254,7 +252,7 @@ pub struct SupportedStreamConfigRange {
     /// Buffersize ranges supported by the device
     pub(crate) buffer_size: SupportedBufferSize,
     /// Type of data expected by the device.
-    pub(crate) sample_format: SampleFormat,
+    pub(crate) sample_format: RawSampleFormat,
 }
 
 /// Describes a single supported stream configuration, retrieved via either a
@@ -264,7 +262,7 @@ pub struct SupportedStreamConfig {
     channels: ChannelCount,
     sample_rate: SampleRate,
     buffer_size: SupportedBufferSize,
-    sample_format: SampleFormat,
+    sample_format: RawSampleFormat,
 }
 
 /// A buffer of dynamically typed audio data, passed to raw stream callbacks.
@@ -275,7 +273,7 @@ pub struct SupportedStreamConfig {
 pub struct Data {
     data: *mut (),
     len: usize,
-    sample_format: SampleFormat,
+    sample_format: RawSampleFormat,
 }
 
 /// A monotonic time instance associated with a stream, retrieved from either:
@@ -341,7 +339,7 @@ impl SupportedStreamConfig {
         channels: ChannelCount,
         sample_rate: SampleRate,
         buffer_size: SupportedBufferSize,
-        sample_format: SampleFormat,
+        sample_format: RawSampleFormat,
     ) -> Self {
         Self {
             channels,
@@ -363,7 +361,7 @@ impl SupportedStreamConfig {
         &self.buffer_size
     }
 
-    pub fn sample_format(&self) -> SampleFormat {
+    pub fn sample_format(&self) -> RawSampleFormat {
         self.sample_format
     }
 
@@ -475,7 +473,7 @@ impl Data {
     pub(crate) unsafe fn from_parts(
         data: *mut (),
         len: usize,
-        sample_format: SampleFormat,
+        sample_format: RawSampleFormat,
     ) -> Self {
         Data {
             data,
@@ -485,7 +483,7 @@ impl Data {
     }
 
     /// The sample format of the internal audio data.
-    pub fn sample_format(&self) -> SampleFormat {
+    pub fn sample_format(&self) -> RawSampleFormat {
         self.sample_format
     }
 
@@ -524,7 +522,7 @@ impl Data {
     where
         T: SizedSample,
     {
-        if T::FORMAT == self.sample_format {
+        if T::supports_format(self.sample_format) {
             // The safety of this block relies on correct construction of the `Data` instance. See
             // the unsafe `from_parts` constructor for these requirements.
             unsafe { Some(std::slice::from_raw_parts(self.data as *const T, self.len)) }
@@ -540,7 +538,7 @@ impl Data {
     where
         T: SizedSample,
     {
-        if T::FORMAT == self.sample_format {
+        if T::supports_format(self.sample_format) {
             // The safety of this block relies on correct construction of the `Data` instance. See
             // the unsafe `from_parts` constructor for these requirements.
             unsafe {
@@ -561,7 +559,7 @@ impl SupportedStreamConfigRange {
         min_sample_rate: SampleRate,
         max_sample_rate: SampleRate,
         buffer_size: SupportedBufferSize,
-        sample_format: SampleFormat,
+        sample_format: RawSampleFormat,
     ) -> Self {
         Self {
             channels,
@@ -588,7 +586,7 @@ impl SupportedStreamConfigRange {
         &self.buffer_size
     }
 
-    pub fn sample_format(&self) -> SampleFormat {
+    pub fn sample_format(&self) -> RawSampleFormat {
         self.sample_format
     }
 
@@ -643,7 +641,6 @@ impl SupportedStreamConfigRange {
     /// - Max sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering::Equal;
-        use SampleFormat::{F32, I16, U16};
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
         if cmp_stereo != Equal {
@@ -660,17 +657,20 @@ impl SupportedStreamConfigRange {
             return cmp_channels;
         }
 
-        let cmp_f32 = (self.sample_format == F32).cmp(&(other.sample_format == F32));
+        let cmp_f32 = matches!(self.sample_format, RawSampleFormat::F32(_))
+            .cmp(&matches!(other.sample_format, RawSampleFormat::F32(_)));
         if cmp_f32 != Equal {
             return cmp_f32;
         }
 
-        let cmp_i16 = (self.sample_format == I16).cmp(&(other.sample_format == I16));
+        let cmp_i16 = matches!(self.sample_format, RawSampleFormat::I16(_))
+            .cmp(&matches!(other.sample_format, RawSampleFormat::I16(_)));
         if cmp_i16 != Equal {
             return cmp_i16;
         }
 
-        let cmp_u16 = (self.sample_format == U16).cmp(&(other.sample_format == U16));
+        let cmp_u16 = matches!(self.sample_format, RawSampleFormat::U16(_))
+            .cmp(&matches!(other.sample_format, RawSampleFormat::U16(_)));
         if cmp_u16 != Equal {
             return cmp_u16;
         }
@@ -696,62 +696,77 @@ fn test_cmp_default_heuristics() {
             channels: 2,
             min_sample_rate: SampleRate(1),
             max_sample_rate: SampleRate(96000),
-            sample_format: SampleFormat::F32,
+            sample_format: RawSampleFormat::F32(types::f32::RawFormat::LE),
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 1,
             min_sample_rate: SampleRate(1),
             max_sample_rate: SampleRate(96000),
-            sample_format: SampleFormat::F32,
+            sample_format: RawSampleFormat::F32(types::f32::RawFormat::LE),
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
             min_sample_rate: SampleRate(1),
             max_sample_rate: SampleRate(96000),
-            sample_format: SampleFormat::I16,
+            sample_format: RawSampleFormat::I16(types::i16::RawFormat::LE),
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
             min_sample_rate: SampleRate(1),
             max_sample_rate: SampleRate(96000),
-            sample_format: SampleFormat::U16,
+            sample_format: RawSampleFormat::U16(types::u16::RawFormat::LE),
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
             min_sample_rate: SampleRate(1),
             max_sample_rate: SampleRate(22050),
-            sample_format: SampleFormat::F32,
+            sample_format: RawSampleFormat::F32(types::f32::RawFormat::LE),
         },
     ];
 
     formats.sort_by(|a, b| a.cmp_default_heuristics(b));
 
     // lowest-priority first:
-    assert_eq!(formats[0].sample_format(), SampleFormat::F32);
+    assert_eq!(
+        formats[0].sample_format(),
+        RawSampleFormat::F32(types::f32::RawFormat::LE)
+    );
     assert_eq!(formats[0].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[0].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[0].channels(), 1);
 
-    assert_eq!(formats[1].sample_format(), SampleFormat::U16);
+    assert_eq!(
+        formats[1].sample_format(),
+        RawSampleFormat::U16(types::u16::RawFormat::LE)
+    );
     assert_eq!(formats[1].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[1].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[1].channels(), 2);
 
-    assert_eq!(formats[2].sample_format(), SampleFormat::I16);
+    assert_eq!(
+        formats[2].sample_format(),
+        RawSampleFormat::I16(types::i16::RawFormat::LE)
+    );
     assert_eq!(formats[2].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[2].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[2].channels(), 2);
 
-    assert_eq!(formats[3].sample_format(), SampleFormat::F32);
+    assert_eq!(
+        formats[3].sample_format(),
+        RawSampleFormat::F32(types::f32::RawFormat::LE)
+    );
     assert_eq!(formats[3].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[3].max_sample_rate(), SampleRate(22050));
     assert_eq!(formats[3].channels(), 2);
 
-    assert_eq!(formats[4].sample_format(), SampleFormat::F32);
+    assert_eq!(
+        formats[4].sample_format(),
+        RawSampleFormat::F32(types::f32::RawFormat::LE)
+    );
     assert_eq!(formats[4].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[4].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[4].channels(), 2);

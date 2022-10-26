@@ -5,12 +5,12 @@ extern crate cpal;
 use std::{iter, marker::PhantomData};
 
 use clap::arg;
-use cpal::FromSample;
 use cpal::{
     buffers::{AudioSource, SampleBufferMut},
     traits::{DeviceTrait, HostTrait, StreamTrait},
     InputCallbackInfo, SampleRate, SizedSample, StreamConfig, StreamError, I24, U24,
 };
+use cpal::{FromSample, RawSampleFormat};
 
 #[derive(Debug)]
 struct Opt {
@@ -127,18 +127,90 @@ fn main() -> anyhow::Result<()> {
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
     match sample_format {
-        cpal::SampleFormat::I8 => run::<i8, _>(&device, &config, Sinus::new(sample_rate), err_fn),
-        cpal::SampleFormat::I16 => run::<i16, _>(&device, &config, Sinus::new(sample_rate), err_fn),
-        cpal::SampleFormat::I24 => run::<I24, _>(&device, &config, Sinus::new(sample_rate), err_fn),
-        cpal::SampleFormat::I32 => run::<i32, _>(&device, &config, Sinus::new(sample_rate), err_fn),
-        cpal::SampleFormat::I64 => run::<i64, _>(&device, &config, Sinus::new(sample_rate), err_fn),
-        cpal::SampleFormat::U8 => run::<u8, _>(&device, &config, Sinus::new(sample_rate), err_fn),
-        cpal::SampleFormat::U16 => run::<u16, _>(&device, &config, Sinus::new(sample_rate), err_fn),
-        cpal::SampleFormat::U24 => run::<U24, _>(&device, &config, Sinus::new(sample_rate), err_fn),
-        cpal::SampleFormat::U32 => run::<u32, _>(&device, &config, Sinus::new(sample_rate), err_fn),
-        cpal::SampleFormat::U64 => run::<u64, _>(&device, &config, Sinus::new(sample_rate), err_fn),
-        cpal::SampleFormat::F32 => run::<f32, _>(&device, &config, Sinus::new(sample_rate), err_fn),
-        cpal::SampleFormat::F64 => run::<f64, _>(&device, &config, Sinus::new(sample_rate), err_fn),
+        cpal::RawSampleFormat::I8(_) => run::<i8, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
+        cpal::RawSampleFormat::I16(_) => run::<i16, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
+        cpal::RawSampleFormat::I24(_) => run::<I24, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
+        cpal::RawSampleFormat::I32(_) => run::<i32, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
+        cpal::RawSampleFormat::I64(_) => run::<i64, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
+        cpal::RawSampleFormat::U8(_) => run::<u8, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
+        cpal::RawSampleFormat::U16(_) => run::<u16, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
+        cpal::RawSampleFormat::U24(_) => run::<U24, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
+        cpal::RawSampleFormat::U32(_) => run::<u32, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
+        cpal::RawSampleFormat::U64(_) => run::<u64, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
+        cpal::RawSampleFormat::F32(_) => run::<f32, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
+        cpal::RawSampleFormat::F64(_) => run::<f64, _>(
+            &device,
+            &config,
+            sample_format,
+            Sinus::new(sample_rate),
+            err_fn,
+        ),
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }?;
 
@@ -189,6 +261,7 @@ impl<T: SizedSample + FromSample<f32>> AudioSource for Sinus<T> {
 fn run<T, E>(
     device: &cpal::Device,
     config: &StreamConfig,
+    sample_format: RawSampleFormat,
     audio_source: Sinus<T>,
     err_fn: E,
 ) -> Result<(), anyhow::Error>
@@ -196,7 +269,8 @@ where
     T: SizedSample + FromSample<f32>, // + SizedSample,
     E: FnMut(StreamError) + Send + 'static,
 {
-    let stream = device.build_output_stream_new(config, audio_source, err_fn, None)?;
+    let stream =
+        device.build_output_stream_new(config, sample_format, audio_source, err_fn, None)?;
     stream.play()?;
 
     Ok(())

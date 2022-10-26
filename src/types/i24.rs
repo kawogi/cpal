@@ -1,13 +1,13 @@
 use std::{fmt::Display, mem};
 
-use crate::{sample_buffer, sized_sample, SampleFormat};
+use crate::{sample_buffer, sized_sample};
 
 use super::RawSample;
 use dasp_sample::{Sample, I24};
 
 pub type Primitive = I24;
 pub const DEFAULT: Primitive = Primitive::EQUILIBRIUM;
-pub const FORMAT: SampleFormat = SampleFormat::I24;
+//pub const FORMAT: SampleFormat = SampleFormat::I24;
 type Repr = i32;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

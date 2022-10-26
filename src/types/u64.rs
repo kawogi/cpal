@@ -1,13 +1,13 @@
 use std::{fmt::Display, mem};
 
-use crate::{sample_buffer, sized_sample, SampleFormat};
+use crate::{sample_buffer, sized_sample};
 
 use super::RawSample;
 use dasp_sample::Sample;
 
 pub type Primitive = u64;
 pub const DEFAULT: Primitive = Primitive::EQUILIBRIUM;
-pub const FORMAT: SampleFormat = SampleFormat::U64;
+//pub const FORMAT: SampleFormat = SampleFormat::U64;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RawFormat {

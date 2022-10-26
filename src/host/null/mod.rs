@@ -4,7 +4,7 @@ use crate::buffers::AudioSource;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, RawSampleFormat,
     StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
@@ -76,7 +76,7 @@ impl DeviceTrait for Device {
     fn build_input_stream_raw<D, E>(
         &self,
         _config: &StreamConfig,
-        _sample_format: SampleFormat,
+        _sample_format: RawSampleFormat,
         _data_callback: D,
         _error_callback: E,
         _timeout: Option<Duration>,
@@ -91,7 +91,7 @@ impl DeviceTrait for Device {
     fn build_output_stream_raw_new<A, E>(
         &self,
         _config: &StreamConfig,
-        //sample_format: RawSampleFormat,
+        _sample_format: RawSampleFormat,
         _audio_source: A,
         _error_callback: E,
         _timeout: Option<std::time::Duration>,
@@ -107,7 +107,7 @@ impl DeviceTrait for Device {
     fn build_output_stream_raw<D, E>(
         &self,
         _config: &StreamConfig,
-        _sample_format: SampleFormat,
+        _sample_format: RawSampleFormat,
         _data_callback: D,
         _error_callback: E,
         _timeout: Option<Duration>,

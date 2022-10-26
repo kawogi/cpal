@@ -366,7 +366,7 @@ macro_rules! impl_platform_host {
             fn build_input_stream_raw<D, E>(
                 &self,
                 config: &crate::StreamConfig,
-                sample_format: crate::SampleFormat,
+                sample_format: crate::RawSampleFormat,
                 data_callback: D,
                 error_callback: E,
                 timeout: Option<std::time::Duration>,
@@ -395,7 +395,7 @@ macro_rules! impl_platform_host {
             fn build_output_stream_raw<D, E>(
                 &self,
                 config: &crate::StreamConfig,
-                sample_format: crate::SampleFormat,
+                sample_format: crate::RawSampleFormat,
                 data_callback: D,
                 error_callback: E,
                 timeout: Option<std::time::Duration>,
@@ -424,7 +424,7 @@ macro_rules! impl_platform_host {
             fn build_output_stream_raw_new<A, E>(
                 &self,
                 config: &crate::StreamConfig,
-                //sample_format: crate::samples_formats::RawSampleFormat,
+                sample_format: crate::samples_formats::RawSampleFormat,
                 audio_source: A,
                 error_callback: E,
                 timeout: Option<std::time::Duration>,
@@ -439,6 +439,7 @@ macro_rules! impl_platform_host {
                         DeviceInner::$HostVariant(ref d) => d
                             .build_output_stream_raw_new(
                                 config,
+                                sample_format,
                                 audio_source,
                                 error_callback,
                                 timeout,

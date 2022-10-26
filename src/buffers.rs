@@ -192,11 +192,15 @@ impl<'buffer, T: RawSample> Iterator for Samples<'buffer, T> {
 macro_rules! sized_sample {
     ($self:ident: $($variant:ident),*) => {
         impl $crate::SizedSample for Primitive {
-            const FORMAT: $crate::SampleFormat = FORMAT;
+            //const FORMAT: $crate::SampleFormat = FORMAT;
 
             type RawFormat = RawFormat;
             type Buffer<'buffer> = SampleBuffer<'buffer>;
             type BufferMut<'buffer> = SampleBufferMut<'buffer>;
+
+            fn supports_format(format: $crate::RawSampleFormat) -> bool {
+                matches!(format, $crate::RawSampleFormat::$self(_))
+            }
 
             fn create_interleaved_buffer<'buffer>(
                 bytes: &'buffer [u8],

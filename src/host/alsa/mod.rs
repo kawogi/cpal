@@ -10,9 +10,9 @@ use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     types, BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, SizedSample,
-    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleRate, SizedSample, StreamConfig,
+    StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use std::cmp;
 use std::convert::TryInto;
@@ -93,7 +93,7 @@ impl DeviceTrait for Device {
     fn build_input_stream_raw<D, E>(
         &self,
         conf: &StreamConfig,
-        sample_format: SampleFormat,
+        sample_format: RawSampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -116,7 +116,7 @@ impl DeviceTrait for Device {
     fn build_output_stream_raw_new<A, E>(
         &self,
         conf: &StreamConfig,
-        //sample_format: RawSampleFormat,
+        sample_format: RawSampleFormat,
         audio_source: A,
         error_callback: E,
         timeout: Option<std::time::Duration>,
@@ -125,11 +125,6 @@ impl DeviceTrait for Device {
         A: AudioSource,
         E: FnMut(StreamError) + Send + 'static,
     {
-        // FIXME this need to be deduced somehow
-        let a = 0; // ← warning
-        let sample_format = RawSampleFormat::F32(types::f32::RawFormat::LE);
-        println!("{}", <A as AudioSource>::Item::FORMAT);
-
         let stream_inner =
             self.build_stream_inner_new(conf, sample_format, alsa::Direction::Capture)?;
         let stream = StreamNew::new_input(
@@ -144,7 +139,7 @@ impl DeviceTrait for Device {
     fn build_output_stream_raw<D, E>(
         &self,
         conf: &StreamConfig,
-        sample_format: SampleFormat,
+        sample_format: RawSampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -276,7 +271,7 @@ impl Device {
     fn build_stream_inner(
         &self,
         conf: &StreamConfig,
-        sample_format: SampleFormat,
+        sample_format: RawSampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, BuildStreamError> {
         let handle_result = self
@@ -420,25 +415,79 @@ impl Device {
         let hw_params = alsa::pcm::HwParams::any(handle)?;
 
         // TODO: check endianness
-        const FORMATS: [(SampleFormat, alsa::pcm::Format); 8] = [
-            (SampleFormat::I8, alsa::pcm::Format::S8),
-            (SampleFormat::U8, alsa::pcm::Format::U8),
-            (SampleFormat::I16, alsa::pcm::Format::S16LE),
-            //SND_PCM_FORMAT_S16_BE,
-            (SampleFormat::U16, alsa::pcm::Format::U16LE),
-            //SND_PCM_FORMAT_U16_BE,
-            //SND_PCM_FORMAT_S24_LE,
-            //SND_PCM_FORMAT_S24_BE,
-            //SND_PCM_FORMAT_U24_LE,
-            //SND_PCM_FORMAT_U24_BE,
-            (SampleFormat::I32, alsa::pcm::Format::S32LE),
-            //SND_PCM_FORMAT_S32_BE,
-            (SampleFormat::U32, alsa::pcm::Format::U32LE),
-            //SND_PCM_FORMAT_U32_BE,
-            (SampleFormat::F32, alsa::pcm::Format::FloatLE),
-            //SND_PCM_FORMAT_FLOAT_BE,
-            (SampleFormat::F64, alsa::pcm::Format::Float64LE),
-            //SND_PCM_FORMAT_FLOAT64_BE,
+        const FORMATS: [(RawSampleFormat, alsa::pcm::Format); 22] = [
+            (
+                RawSampleFormat::I8(types::i8::RawFormat::NE),
+                alsa::pcm::Format::S8,
+            ),
+            (
+                RawSampleFormat::U8(types::u8::RawFormat::NE),
+                alsa::pcm::Format::U8,
+            ),
+            (
+                RawSampleFormat::I16(types::i16::RawFormat::LE),
+                alsa::pcm::Format::S16LE,
+            ),
+            (
+                RawSampleFormat::I16(types::i16::RawFormat::BE),
+                alsa::pcm::Format::S16BE,
+            ),
+            (
+                RawSampleFormat::U16(types::u16::RawFormat::LE),
+                alsa::pcm::Format::U16LE,
+            ),
+            (
+                RawSampleFormat::U16(types::u16::RawFormat::BE),
+                alsa::pcm::Format::U16BE,
+            ),
+            (
+                RawSampleFormat::I24(types::i24::RawFormat::LE4B),
+                alsa::pcm::Format::S24LE,
+            ),
+            (
+                RawSampleFormat::I24(types::i24::RawFormat::BE4B),
+                alsa::pcm::Format::S24BE,
+            ),
+            (
+                RawSampleFormat::U24(types::u24::RawFormat::LE4B),
+                alsa::pcm::Format::U24LE,
+            ),
+            (
+                RawSampleFormat::U24(types::u24::RawFormat::BE4B),
+                alsa::pcm::Format::U24BE,
+            ),
+            (
+                RawSampleFormat::I32(types::i32::RawFormat::LE),
+                alsa::pcm::Format::S32LE,
+            ),
+            (
+                RawSampleFormat::I32(types::i32::RawFormat::BE),
+                alsa::pcm::Format::S32BE,
+            ),
+            (
+                RawSampleFormat::U32(types::u32::RawFormat::LE),
+                alsa::pcm::Format::U32LE,
+            ),
+            (
+                RawSampleFormat::U32(types::u32::RawFormat::BE),
+                alsa::pcm::Format::U32BE,
+            ),
+            (
+                RawSampleFormat::F32(types::f32::RawFormat::LE),
+                alsa::pcm::Format::FloatLE,
+            ),
+            (
+                RawSampleFormat::F32(types::f32::RawFormat::BE),
+                alsa::pcm::Format::FloatBE,
+            ),
+            (
+                RawSampleFormat::F64(types::f64::RawFormat::LE),
+                alsa::pcm::Format::Float64LE,
+            ),
+            (
+                RawSampleFormat::F64(types::f64::RawFormat::BE),
+                alsa::pcm::Format::Float64BE,
+            ),
             //SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
             //SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
             //SND_PCM_FORMAT_MU_LAW,
@@ -447,18 +496,54 @@ impl Device {
             //SND_PCM_FORMAT_MPEG,
             //SND_PCM_FORMAT_GSM,
             //SND_PCM_FORMAT_SPECIAL,
-            //SND_PCM_FORMAT_S24_3LE,
-            //SND_PCM_FORMAT_S24_3BE,
-            //SND_PCM_FORMAT_U24_3LE,
-            //SND_PCM_FORMAT_U24_3BE,
-            //SND_PCM_FORMAT_S20_3LE,
-            //SND_PCM_FORMAT_S20_3BE,
-            //SND_PCM_FORMAT_U20_3LE,
-            //SND_PCM_FORMAT_U20_3BE,
-            //SND_PCM_FORMAT_S18_3LE,
-            //SND_PCM_FORMAT_S18_3BE,
-            //SND_PCM_FORMAT_U18_3LE,
-            //SND_PCM_FORMAT_U18_3BE,
+            (
+                RawSampleFormat::I24(types::i24::RawFormat::LE3B),
+                alsa::pcm::Format::S243LE,
+            ),
+            (
+                RawSampleFormat::I24(types::i24::RawFormat::BE3B),
+                alsa::pcm::Format::S243BE,
+            ),
+            (
+                RawSampleFormat::U24(types::u24::RawFormat::LE3B),
+                alsa::pcm::Format::U243LE,
+            ),
+            (
+                RawSampleFormat::U24(types::u24::RawFormat::BE3B),
+                alsa::pcm::Format::U243BE,
+            ),
+            // (
+            //     RawSampleFormat::I20(types::i20::RawFormat::LE3B),
+            //     alsa::pcm::Format::S203LE,
+            // ),
+            // (
+            //     RawSampleFormat::I20(types::i20::RawFormat::BE3B),
+            //     alsa::pcm::Format::S203BE,
+            // ),
+            // (
+            //     RawSampleFormat::U20(types::u20::RawFormat::LE3B),
+            //     alsa::pcm::Format::U203LE,
+            // ),
+            // (
+            //     RawSampleFormat::U20(types::u20::RawFormat::BE3B),
+            //     alsa::pcm::Format::U203BE,
+            // ),
+            // (
+            //     RawSampleFormat::I18(types::i18::RawFormat::LE3B),
+            //     alsa::pcm::Format::S183LE,
+            // ),
+            // (
+            //     RawSampleFormat::I18(types::i18::RawFormat::BE3B),
+            //     alsa::pcm::Format::S183BE,
+            // ),
+            // (
+            //     RawSampleFormat::U18(types::u18::RawFormat::LE3B),
+            //     alsa::pcm::Format::U183LE,
+            // ),
+            // (
+            //     RawSampleFormat::U18(types::u18::RawFormat::BE3B),
+            //     alsa::pcm::Format::U183BE,
+            // ),
         ];
 
         let mut supported_formats = Vec::new();
@@ -605,7 +690,7 @@ struct StreamInner {
     num_descriptors: usize,
 
     // Format of the samples.
-    sample_format: SampleFormat,
+    sample_format: RawSampleFormat,
 
     // The configuration used to open this stream.
     conf: StreamConfig,
@@ -1119,14 +1204,15 @@ where
 
     let channel_count = stream.conf.channels;
 
-    if A::Item::FORMAT != SampleFormat::from(sample_format) {
-        panic!();
-    }
+    // FIXME there needs to be a compatibility check!
+    // if A::Item::FORMAT != SampleFormat::from(sample_format) {
+    //     panic!();
+    // }
 
     println!("process_input_new");
 
-    match SampleFormat::from(sample_format) {
-        SampleFormat::I8 => {
+    match sample_format {
+        RawSampleFormat::I8(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1138,7 +1224,7 @@ where
                 panic!();
             }
         }
-        SampleFormat::I16 => {
+        RawSampleFormat::I16(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1150,7 +1236,7 @@ where
                 panic!();
             }
         }
-        SampleFormat::I24 => {
+        RawSampleFormat::I24(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1162,7 +1248,7 @@ where
                 panic!();
             }
         }
-        SampleFormat::I32 => {
+        RawSampleFormat::I32(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1174,7 +1260,7 @@ where
                 panic!();
             }
         }
-        SampleFormat::I64 => {
+        RawSampleFormat::I64(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1186,7 +1272,7 @@ where
                 panic!();
             }
         }
-        SampleFormat::U8 => {
+        RawSampleFormat::U8(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1198,7 +1284,7 @@ where
                 panic!();
             }
         }
-        SampleFormat::U16 => {
+        RawSampleFormat::U16(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1210,7 +1296,7 @@ where
                 panic!();
             }
         }
-        SampleFormat::U24 => {
+        RawSampleFormat::U24(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1222,7 +1308,7 @@ where
                 panic!();
             }
         }
-        SampleFormat::U32 => {
+        RawSampleFormat::U32(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1234,7 +1320,7 @@ where
                 panic!();
             }
         }
-        SampleFormat::U64 => {
+        RawSampleFormat::U64(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1246,7 +1332,7 @@ where
                 panic!();
             }
         }
-        SampleFormat::F32 => {
+        RawSampleFormat::F32(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1258,7 +1344,7 @@ where
                 panic!();
             }
         }
-        SampleFormat::F64 => {
+        RawSampleFormat::F64(_) => {
             if let Some(buffer) = A::Item::create_interleaved_buffer_mut(
                 buffer,
                 sample_format,
@@ -1519,27 +1605,27 @@ impl StreamTrait for StreamNew {
 fn set_hw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
-    sample_format: SampleFormat,
+    sample_format: RawSampleFormat,
 ) -> Result<bool, BackendSpecificError> {
     let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
     let sample_format = if cfg!(target_endian = "big") {
         match sample_format {
-            SampleFormat::I8 => alsa::pcm::Format::S8,
-            SampleFormat::I16 => alsa::pcm::Format::S16BE,
-            // SampleFormat::I24 => alsa::pcm::Format::S24BE,
-            SampleFormat::I32 => alsa::pcm::Format::S32BE,
-            // SampleFormat::I48 => alsa::pcm::Format::S48BE,
-            // SampleFormat::I64 => alsa::pcm::Format::S64BE,
-            SampleFormat::U8 => alsa::pcm::Format::U8,
-            SampleFormat::U16 => alsa::pcm::Format::U16BE,
-            // SampleFormat::U24 => alsa::pcm::Format::U24BE,
-            SampleFormat::U32 => alsa::pcm::Format::U32BE,
-            // SampleFormat::U48 => alsa::pcm::Format::U48BE,
-            // SampleFormat::U64 => alsa::pcm::Format::U64BE,
-            SampleFormat::F32 => alsa::pcm::Format::FloatBE,
-            SampleFormat::F64 => alsa::pcm::Format::Float64BE,
+            RawSampleFormat::I8(_) => alsa::pcm::Format::S8,
+            RawSampleFormat::I16(_) => alsa::pcm::Format::S16BE,
+            // RawSampleFormat::I24(_) => alsa::pcm::Format::S24BE,
+            RawSampleFormat::I32(_) => alsa::pcm::Format::S32BE,
+            // RawSampleFormat::I48(_) => alsa::pcm::Format::S48BE,
+            // RawSampleFormat::I64(_) => alsa::pcm::Format::S64BE,
+            RawSampleFormat::U8(_) => alsa::pcm::Format::U8,
+            RawSampleFormat::U16(_) => alsa::pcm::Format::U16BE,
+            // RawSampleFormat::U24(_) => alsa::pcm::Format::U24BE,
+            RawSampleFormat::U32(_) => alsa::pcm::Format::U32BE,
+            // RawSampleFormat::U48(_) => alsa::pcm::Format::U48BE,
+            // RawSampleFormat::U64(_) => alsa::pcm::Format::U64BE,
+            RawSampleFormat::F32(_) => alsa::pcm::Format::FloatBE,
+            RawSampleFormat::F64(_) => alsa::pcm::Format::Float64BE,
             sample_format => {
                 return Err(BackendSpecificError {
                     description: format!(
@@ -1551,20 +1637,20 @@ fn set_hw_params_from_format(
         }
     } else {
         match sample_format {
-            SampleFormat::I8 => alsa::pcm::Format::S8,
-            SampleFormat::I16 => alsa::pcm::Format::S16LE,
-            // SampleFormat::I24 => alsa::pcm::Format::S24LE,
-            SampleFormat::I32 => alsa::pcm::Format::S32LE,
-            // SampleFormat::I48 => alsa::pcm::Format::S48LE,
-            // SampleFormat::I64 => alsa::pcm::Format::S64LE,
-            SampleFormat::U8 => alsa::pcm::Format::U8,
-            SampleFormat::U16 => alsa::pcm::Format::U16LE,
-            // SampleFormat::U24 => alsa::pcm::Format::U24LE,
-            SampleFormat::U32 => alsa::pcm::Format::U32LE,
-            // SampleFormat::U48 => alsa::pcm::Format::U48LE,
-            // SampleFormat::U64 => alsa::pcm::Format::U64LE,
-            SampleFormat::F32 => alsa::pcm::Format::FloatLE,
-            SampleFormat::F64 => alsa::pcm::Format::Float64LE,
+            RawSampleFormat::I8(_) => alsa::pcm::Format::S8,
+            RawSampleFormat::I16(_) => alsa::pcm::Format::S16LE,
+            // RawSampleFormat::I24(_) => alsa::pcm::Format::S24LE,
+            RawSampleFormat::I32(_) => alsa::pcm::Format::S32LE,
+            // RawSampleFormat::I48(_) => alsa::pcm::Format::S48LE,
+            // RawSampleFormat::I64(_) => alsa::pcm::Format::S64LE,
+            RawSampleFormat::U8(_) => alsa::pcm::Format::U8,
+            RawSampleFormat::U16(_) => alsa::pcm::Format::U16LE,
+            // RawSampleFormat::U24(_) => alsa::pcm::Format::U24LE,
+            RawSampleFormat::U32(_) => alsa::pcm::Format::U32LE,
+            // RawSampleFormat::U48(_) => alsa::pcm::Format::U48LE,
+            // RawSampleFormat::U64(_) => alsa::pcm::Format::U64LE,
+            RawSampleFormat::F32(_) => alsa::pcm::Format::FloatLE,
+            RawSampleFormat::F64(_) => alsa::pcm::Format::Float64LE,
             sample_format => {
                 return Err(BackendSpecificError {
                     description: format!(

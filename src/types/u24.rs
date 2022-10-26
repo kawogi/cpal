@@ -1,13 +1,13 @@
 use std::{fmt::Display, mem};
 
-use crate::{sample_buffer, sized_sample, SampleFormat};
+use crate::{sample_buffer, sized_sample};
 
 use super::RawSample;
 use dasp_sample::{Sample, U24};
 
 pub type Primitive = U24;
 pub const DEFAULT: Primitive = Primitive::EQUILIBRIUM;
-pub const FORMAT: SampleFormat = SampleFormat::U24;
+//pub const FORMAT: SampleFormat = SampleFormat::U24;
 // TODO ask author of `dasp_sample` why this couldn't be `u32`
 type Repr = i32;
 
