@@ -333,7 +333,7 @@ impl Device {
         conf: &StreamConfig,
         sample_format: RawSampleFormat,
         stream_type: alsa::Direction,
-    ) -> Result<StreamInnerNew, BuildStreamError> {
+    ) -> Result<StreamInner, BuildStreamError> {
         let handle_result = self
             .handles
             .lock()
@@ -374,7 +374,7 @@ impl Device {
             handle.start()?;
         }
 
-        let stream_inner = StreamInnerNew {
+        let stream_inner = StreamInner {
             channel: handle,
             sample_format,
             num_descriptors,
@@ -718,42 +718,6 @@ struct StreamInner {
 // Assume that the ALSA library is built with thread safe option.
 unsafe impl Sync for StreamInner {}
 
-struct StreamInnerNew {
-    // The ALSA channel.
-    channel: alsa::pcm::PCM,
-
-    // When converting between file descriptors and `snd_pcm_t`, this is the number of
-    // file descriptors that this `snd_pcm_t` uses.
-    num_descriptors: usize,
-
-    // Format of the samples.
-    sample_format: RawSampleFormat,
-
-    // The configuration used to open this stream.
-    conf: StreamConfig,
-
-    // Minimum number of samples to put in the buffer.
-    period_len: usize,
-
-    #[allow(dead_code)]
-    // Whether or not the hardware supports pausing the stream.
-    // TODO: We need an API to expose this. See #197, #284.
-    can_pause: bool,
-
-    // In the case that the device does not return valid timestamps via `get_htstamp`, this field
-    // will be `Some` and will contain an `Instant` representing the moment the stream was created.
-    //
-    // If this field is `Some`, then the stream will use the duration since this instant as a
-    // source for timestamps.
-    //
-    // If this field is `None` then the elapsed duration between `get_trigger_htstamp` and
-    // `get_htstamp` is used.
-    creation_instant: Option<std::time::Instant>,
-}
-
-// Assume that the ALSA library is built with thread safe option.
-unsafe impl Sync for StreamInnerNew {}
-
 #[derive(Debug, Eq, PartialEq)]
 enum StreamType {
     Input,
@@ -778,7 +742,7 @@ pub struct StreamNew {
     thread: Option<JoinHandle<()>>,
 
     /// Handle to the underlying stream for playback controls.
-    inner: Arc<StreamInnerNew>,
+    inner: Arc<StreamInner>,
 
     /// Used to signal to stop processing.
     trigger: TriggerSender,
@@ -859,7 +823,7 @@ fn input_stream_worker(
 
 fn input_stream_worker_new<A>(
     rx: TriggerReceiver,
-    stream: &StreamInnerNew,
+    stream: &StreamInner,
     data_callback: &mut A, //mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
     timeout: Option<Duration>,
@@ -1063,7 +1027,7 @@ fn poll_descriptors_and_prepare_buffer(
 // This block is shared between both input and output stream worker functions.
 fn poll_descriptors_and_prepare_buffer_new(
     rx: &TriggerReceiver,
-    stream: &StreamInnerNew,
+    stream: &StreamInner,
     ctxt: &mut StreamWorkerContext,
 ) -> Result<PollDescriptorsFlow, BackendSpecificError> {
     let StreamWorkerContext {
@@ -1173,7 +1137,7 @@ fn process_input(
 }
 
 fn process_input_new<A>(
-    stream: &StreamInnerNew,
+    stream: &StreamInner,
     buffer: &mut [u8],
     status: alsa::pcm::Status,
     delay_frames: usize,
@@ -1535,7 +1499,7 @@ impl Stream {
 
 impl StreamNew {
     fn new_input<A, E>(
-        inner: Arc<StreamInnerNew>,
+        inner: Arc<StreamInner>,
         mut data_callback: A,
         mut error_callback: E,
         timeout: Option<Duration>,
