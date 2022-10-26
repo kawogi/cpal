@@ -8,7 +8,8 @@ use clap::arg;
 use cpal::{
     buffers::{AudioSource, SampleBufferMut},
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    InputCallbackInfo, Sample, SampleRate, SizedSample, StreamConfig, StreamError, I24, U24,
+    Device, Host, InputCallbackInfo, Sample, SampleRate, SizedSample, StreamConfig, StreamError,
+    I24, U24,
 };
 use cpal::{FromSample, RawSampleFormat};
 
@@ -71,50 +72,13 @@ impl Opt {
     }
 }
 
+fn main() -> anyhow::Result<()> {
+    main_new()
+    //main_old()
+}
+
 fn main_new() -> anyhow::Result<()> {
-    let opt = Opt::from_args();
-
-    // Conditionally compile with jack if the feature is specified.
-    #[cfg(all(
-        any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        ),
-        feature = "jack"
-    ))]
-    // Manually check for flags. Can be passed through cargo with -- e.g.
-    // cargo run --release --example beep --features jack -- --jack
-    let host = if opt.jack {
-        cpal::host_from_id(cpal::available_hosts()
-            .into_iter()
-            .find(|id| *id == cpal::HostId::Jack)
-            .expect(
-                "make sure --features jack is specified. only works on OSes where jack is available",
-            )).expect("jack host unavailable")
-    } else {
-        cpal::default_host()
-    };
-
-    #[cfg(any(
-        not(any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        )),
-        not(feature = "jack")
-    ))]
-    let host = cpal::default_host();
-
-    let device = if opt.device == "default" {
-        host.default_output_device()
-    } else {
-        host.output_devices()?
-            .find(|x| x.name().map(|y| y == opt.device).unwrap_or(false))
-    }
-    .expect("failed to find output device");
+    let device = device()?;
     println!("Output device: {}", device.name()?);
 
     let config = device.default_output_config().unwrap();
@@ -127,8 +91,6 @@ fn main_new() -> anyhow::Result<()> {
 
     let rate = config.sample_rate();
     let config = StreamConfig::from(config);
-
-    // difference to old implementation
 
     match format {
         RawSampleFormat::I8(_) => run::<i8, _>(&device, &config, format, Sinus::new(rate), err),
@@ -144,24 +106,11 @@ fn main_new() -> anyhow::Result<()> {
         RawSampleFormat::F32(_) => run::<f32, _>(&device, &config, format, Sinus::new(rate), err),
         RawSampleFormat::F64(_) => run::<f64, _>(&device, &config, format, Sinus::new(rate), err),
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
-    }?;
-
-    std::thread::sleep(std::time::Duration::from_millis(1000));
-
-    Ok(())
+    }
 }
 
-fn main() -> anyhow::Result<()> {
-    let opt = Opt::from_args();
-    let host = cpal::default_host();
-
-    let device = if opt.device == "default" {
-        host.default_output_device()
-    } else {
-        host.output_devices()?
-            .find(|x| x.name().map(|y| y == opt.device).unwrap_or(false))
-    }
-    .expect("failed to find output device");
+fn main_old() -> anyhow::Result<()> {
+    let device = device()?;
     println!("Output device: {}", device.name()?);
 
     let config = device.default_output_config().unwrap();
@@ -176,24 +125,25 @@ fn main() -> anyhow::Result<()> {
     let config = StreamConfig::from(config);
 
     match format {
-        RawSampleFormat::I8(_) => run_old::<i8, _>(&device, &config.into(), err),
-        RawSampleFormat::I16(_) => run_old::<i16, _>(&device, &config.into(), err),
-        // RawSampleFormat::I24(_) => run_old::<I24, _>(&device, &config.into(), err),
-        RawSampleFormat::I32(_) => run_old::<i32, _>(&device, &config.into(), err),
-        // RawSampleFormat::I48(_) => run_old::<I48, _>(&device, &config.into(), err),
-        RawSampleFormat::I64(_) => run_old::<i64, _>(&device, &config.into(), err),
-        RawSampleFormat::U8(_) => run_old::<u8, _>(&device, &config.into(), err),
-        RawSampleFormat::U16(_) => run_old::<u16, _>(&device, &config.into(), err),
-        // RawSampleFormat::U24(_) => run_old::<U24, _>(&device, &config.into(), err),
-        RawSampleFormat::U32(_) => run_old::<u32, _>(&device, &config.into(), err),
-        // RawSampleFormat::U48(_) => run_old::<U48, _>(&device, &config.into(), err),
-        RawSampleFormat::U64(_) => run_old::<u64, _>(&device, &config.into(), err),
-        RawSampleFormat::F32(_) => run_old::<f32, _>(&device, &config.into(), err),
-        RawSampleFormat::F64(_) => run_old::<f64, _>(&device, &config.into(), err),
+        RawSampleFormat::I8(_) => run_old::<i8, _>(&device, &config, Sinus::new(rate), err),
+        RawSampleFormat::I16(_) => run_old::<i16, _>(&device, &config, Sinus::new(rate), err),
+        // RawSampleFormat::I24(_) => run_old::<I24, _>(&device, &config, Sinus::new(rate), err),
+        RawSampleFormat::I32(_) => run_old::<i32, _>(&device, &config, Sinus::new(rate), err),
+        // RawSampleFormat::I48(_) => run_old::<I48, _>(&device, &config, Sinus::new(rate), err),
+        RawSampleFormat::I64(_) => run_old::<i64, _>(&device, &config, Sinus::new(rate), err),
+        RawSampleFormat::U8(_) => run_old::<u8, _>(&device, &config, Sinus::new(rate), err),
+        RawSampleFormat::U16(_) => run_old::<u16, _>(&device, &config, Sinus::new(rate), err),
+        // RawSampleFormat::U24(_) => run_old::<U24, _>(&device, &config, Sinus::new(rate), err),
+        RawSampleFormat::U32(_) => run_old::<u32, _>(&device, &config, Sinus::new(rate), err),
+        // RawSampleFormat::U48(_) => run_old::<U48, _>(&device, &config, Sinus::new(rate), err),
+        RawSampleFormat::U64(_) => run_old::<u64, _>(&device, &config, Sinus::new(rate), err),
+        RawSampleFormat::F32(_) => run_old::<f32, _>(&device, &config, Sinus::new(rate), err),
+        RawSampleFormat::F64(_) => run_old::<f64, _>(&device, &config, Sinus::new(rate), err),
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
 }
 
+// Produce a sinusoid of maximum amplitude.
 struct Sinus<T> {
     sample_clock: f32,
     sample_rate: f32,
@@ -259,29 +209,22 @@ where
     Ok(())
 }
 
-pub fn run_old<T, E>(
+fn run_old<T, E>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
+    mut audio_source: Sinus<T>,
     err_fn: E,
 ) -> Result<(), anyhow::Error>
 where
     T: SizedSample + FromSample<f32>,
     E: FnMut(StreamError) + Send + 'static,
 {
-    let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
-
-    // Produce a sinusoid of maximum amplitude.
-    let mut sample_clock = 0f32;
-    let mut next_value = move || {
-        sample_clock = (sample_clock + 1.0) % sample_rate;
-        (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
-    };
 
     let stream = device.build_output_stream(
         config,
         move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-            write_data_old(data, channels, &mut next_value)
+            write_data_old(data, channels, &mut audio_source)
         },
         err_fn,
         None,
@@ -293,14 +236,63 @@ where
     Ok(())
 }
 
-fn write_data_old<T>(output: &mut [T], channels: usize, next_sample: &mut dyn FnMut() -> f32)
+fn write_data_old<T>(output: &mut [T], channels: usize, next_sample: &mut Sinus<T>)
 where
     T: Sample + FromSample<f32>,
 {
     for frame in output.chunks_mut(channels) {
-        let value: T = T::from_sample(next_sample());
+        let value: T = T::from_sample(next_sample.next());
         for sample in frame.iter_mut() {
             *sample = value;
         }
     }
+}
+
+fn device() -> Result<Device, anyhow::Error> {
+    let opt = Opt::from_args();
+    let host = host();
+
+    Ok(if opt.device == "default" {
+        host.default_output_device()
+    } else {
+        host.output_devices()?
+            .find(|x| x.name().map(|y| y == opt.device).unwrap_or(false))
+    }
+    .expect("failed to find output device"))
+}
+
+fn host() -> Host {
+    // Conditionally compile with jack if the feature is specified.
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "jack"
+    ))]
+    // Manually check for flags. Can be passed through cargo with -- e.g.
+    // cargo run --release --example beep --features jack -- --jack
+    let host = if opt.jack {
+        cpal::host_from_id(cpal::available_hosts()
+            .into_iter()
+            .find(|id| *id == cpal::HostId::Jack)
+            .expect(
+                "make sure --features jack is specified. only works on OSes where jack is available",
+            )).expect("jack host unavailable")
+    } else {
+        cpal::default_host()
+    };
+
+    #[cfg(any(
+        not(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        )),
+        not(feature = "jack")
+    ))]
+    cpal::default_host()
 }
