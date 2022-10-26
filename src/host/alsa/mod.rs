@@ -7,9 +7,8 @@ use dasp_sample::{I24, U24};
 use self::alsa::poll::Descriptors;
 use self::parking_lot::Mutex;
 use crate::buffers::AudioSource;
-use crate::samples_formats::SampleFormat;
+use crate::samples::{Encoding, SampleFormat};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crate::types::Encoding;
 use crate::{
     BackendSpecificError, BufferFactory, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,

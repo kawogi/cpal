@@ -1,6 +1,8 @@
 use std::{mem::size_of, ops::Index, slice};
 
-use crate::{types::RawSample, ChannelCount, FrameCount, OutputCallbackInfo, Sample};
+use crate::{
+    samples::RawSample, ChannelCount, FrameCount, OutputCallbackInfo, Sample, SampleFormat,
+};
 
 pub mod interleaved;
 pub mod separated;
@@ -153,6 +155,26 @@ pub fn transmute_from_bytes_mut<T: RawSample>(bytes: &mut [u8]) -> &mut [T] {
 
     // transmute &mut [u8] -> &mut [T]
     unsafe { slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut T, element_count) }
+}
+
+/// Provides a mechanism to create sample buffers based on a primitive sample type and a given format description.
+pub trait BufferFactory {
+    type Buffer<'buffer>: SampleBuffer<Item = Self>;
+    type BufferMut<'buffer>: SampleBufferMut<Item = Self>;
+
+    fn create_interleaved_buffer(
+        bytes: &[u8],
+        format: SampleFormat,
+        channel_count: ChannelCount,
+        frame_count: FrameCount,
+    ) -> Option<Self::Buffer<'_>>;
+
+    fn create_interleaved_buffer_mut(
+        bytes: &mut [u8],
+        format: SampleFormat,
+        channel_count: ChannelCount,
+        frame_count: FrameCount,
+    ) -> Option<Self::BufferMut<'_>>;
 }
 
 impl<'buffer, T: RawSample> IntoIterator for SampleSlice<'buffer, T> {

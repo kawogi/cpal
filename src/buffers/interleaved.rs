@@ -6,7 +6,7 @@ use std::{
 
 use itertools::Itertools;
 
-use crate::{types::RawSample, ChannelCount, FrameCount};
+use crate::{samples::RawSample, ChannelCount, FrameCount};
 
 use super::{
     ChannelIndex, FrameIndex, SampleAddress, SampleBuffer, SampleBufferMut, SampleIndex,

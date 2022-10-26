@@ -157,21 +157,21 @@ pub use platform::{
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
 
+pub use buffers::BufferFactory;
 pub use dasp_sample::{I24, I48, U24, U48};
-pub use samples_formats::{BufferFactory, FromSample, Sample, SampleFormat};
+pub use samples::{FromSample, Sample, SampleFormat};
 use std::convert::TryInto;
 use std::ops::{Div, Mul};
 use std::time::Duration;
 
-use crate::types::Encoding;
+use crate::samples::Encoding;
 
 pub mod buffers;
 mod error;
 mod host;
 pub mod platform;
-mod samples_formats;
+pub mod samples;
 pub mod traits;
-pub mod types;
 
 /// A host's device iterator yielding only *input* devices.
 pub type InputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;

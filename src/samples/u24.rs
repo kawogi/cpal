@@ -6,7 +6,6 @@ use super::RawSample;
 
 pub type Primitive = dasp_sample::U24;
 const DEFAULT: Primitive = <Primitive as dasp_sample::Sample>::EQUILIBRIUM;
-//pub const FORMAT: SampleFormat = SampleFormat::U24;
 // TODO ask author of `dasp_sample` why this couldn't be `u32`
 type Repr = i32;
 
