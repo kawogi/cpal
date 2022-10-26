@@ -20,7 +20,7 @@ where
     type Primitive: Copy;
 }
 
-pub trait RawFormat: Copy + Sized {
+pub trait Encoding: Copy + Sized {
     /// number of bytes the sample format occupies in a slice
     #[must_use]
     fn sample_size(self) -> usize;
@@ -44,108 +44,75 @@ pub trait RawFormat: Copy + Sized {
     }
 }
 
-// enum SampleBufferType {
-//     // i8
-//     InterleavedI8,
-//     SeparatedI8,
+/// Simple raw format descriptor where only the variants _little endian_ and _big_endian_ exist and both types share
+/// the same size.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SimpleLittleBigEncoding<const SIZE: usize> {
+    LE,
+    BE,
+}
 
-//     // i16
-//     InterleavedI16LE,
-//     SeparatedI16LE,
-//     InterleavedI16BE,
-//     SeparatedI16BE,
+impl<const SIZE: usize> Encoding for SimpleLittleBigEncoding<SIZE> {
+    #[inline]
+    #[must_use]
+    fn sample_size(self) -> usize {
+        SIZE
+    }
 
-//     // I18
-//     InterleavedI18LE3B,
-//     SeparatedI18LE3B,
-//     InterleavedI18BE3B,
-//     SeparatedI18BE3B,
-//     InterleavedI18LE4B,
-//     SeparatedI18LE4B,
-//     InterleavedI18BE4B,
-//     SeparatedI18BE4B,
+    #[inline]
+    #[must_use]
+    fn is_le(self) -> bool {
+        matches!(self, Self::LE)
+    }
 
-//     // I20
-//     InterleavedI20LE3B,
-//     SeparatedI20LE3B,
-//     InterleavedI20BE3B,
-//     SeparatedI20BE3B,
-//     InterleavedI20LE4B,
-//     SeparatedI20LE4B,
-//     InterleavedI20BE4B,
-//     SeparatedI20BE4B,
+    #[inline]
+    #[must_use]
+    fn is_be(self) -> bool {
+        matches!(self, Self::BE)
+    }
+}
 
-//     // I24
-//     InterleavedI24LE3B,
-//     SeparatedI24LE3B,
-//     InterleavedI24BE3B,
-//     SeparatedI24BE3B,
-//     InterleavedI24LE4B,
-//     SeparatedI24LE4B,
-//     InterleavedI24BE4B,
-//     SeparatedI24BE4B,
+impl<const SIZE: usize> std::fmt::Display for SimpleLittleBigEncoding<SIZE> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::LE => "le",
+            Self::BE => "be",
+        }
+        .fmt(f)
+    }
+}
 
-//     // i32
-//     InterleavedI32LE,
-//     SeparatedI32LE,
-//     InterleavedI32BE,
-//     SeparatedI32BE,
+/// Simple raw format descriptor where only only one variant (native endianess) exists.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SimpleEncoding<const SIZE: usize> {
+    NE,
+}
 
-//     // u8
-//     InterleavedU8,
-//     SeparatedU8,
+impl<const SIZE: usize> Encoding for SimpleEncoding<SIZE> {
+    #[inline]
+    #[must_use]
+    fn sample_size(self) -> usize {
+        SIZE
+    }
 
-//     // u16
-//     InterleavedU16LE,
-//     SeparatedU16LE,
-//     InterleavedU16BE,
-//     SeparatedU16BE,
+    #[inline]
+    #[must_use]
+    fn is_le(self) -> bool {
+        matches!(self, Self::NE)
+    }
 
-//     // U18
-//     InterleavedU18LE3B,
-//     SeparatedU18LE3B,
-//     InterleavedU18BE3B,
-//     SeparatedU18BE3B,
-//     InterleavedU18LE4B,
-//     SeparatedU18LE4B,
-//     InterleavedU18BE4B,
-//     SeparatedU18BE4B,
+    #[inline]
+    #[must_use]
+    fn is_be(self) -> bool {
+        matches!(self, Self::NE)
+    }
+}
 
-//     // U20
-//     InterleavedU20LE3B,
-//     SeparatedU20LE3B,
-//     InterleavedU20BE3B,
-//     SeparatedU20BE3B,
-//     InterleavedU20LE4B,
-//     SeparatedU20LE4B,
-//     InterleavedU20BE4B,
-//     SeparatedU20BE4B,
-
-//     // U24
-//     InterleavedU24LE3B,
-//     SeparatedU24LE3B,
-//     InterleavedU24BE3B,
-//     SeparatedU24BE3B,
-//     InterleavedU24LE4B,
-//     SeparatedU24LE4B,
-//     InterleavedU24BE4B,
-//     SeparatedU24BE4B,
-
-//     // u32
-//     InterleavedU32LE,
-//     SeparatedU32LE,
-//     InterleavedU32BE,
-//     SeparatedU32BE,
-
-//     // f32
-//     InterleavedF32LE,
-//     SeparatedF32LE,
-//     InterleavedF32BE,
-//     SeparatedF32BE,
-
-//     // f64
-//     InterleavedF64LE,
-//     SeparatedF64LE,
-//     InterleavedF64BE,
-//     SeparatedF64BE,
-// }
+impl<const SIZE: usize> std::fmt::Display for SimpleEncoding<SIZE> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::NE => "ne",
+        }
+        .fmt(f)
+    }
+}

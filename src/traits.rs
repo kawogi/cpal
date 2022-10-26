@@ -3,9 +3,9 @@
 use std::time::Duration;
 
 use crate::{
-    buffers::AudioSource, types, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
+    buffers::AudioSource, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
     DevicesError, InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices,
-    PauseStreamError, PlayStreamError, RawSampleFormat, SizedSample, StreamConfig, StreamError,
+    PauseStreamError, PlayStreamError, Sample, SampleFormat, StreamConfig, StreamError,
     SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -120,18 +120,19 @@ pub trait DeviceTrait {
     fn build_input_stream<T, D, E>(
         &self,
         config: &StreamConfig,
+        sample_format: SampleFormat,
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: SizedSample,
+        T: Sample,
         D: FnMut(&[T], &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         self.build_input_stream_raw(
             config,
-            RawSampleFormat::F32(types::f32::RawFormat::LE), // T::FORMAT, FIXME!!!
+            sample_format,
             move |data, info| {
                 data_callback(
                     data.as_slice()
@@ -148,7 +149,7 @@ pub trait DeviceTrait {
     fn build_output_stream_new<A, E>(
         &self,
         config: &StreamConfig,
-        sample_format: RawSampleFormat,
+        sample_format: SampleFormat,
         audio_source: A,
         error_callback: E,
         timeout: Option<Duration>,
@@ -170,13 +171,13 @@ pub trait DeviceTrait {
     fn build_output_stream<T, D, E>(
         &self,
         config: &StreamConfig,
-        sample_format: RawSampleFormat,
+        sample_format: SampleFormat,
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: SizedSample,
+        T: Sample,
         D: FnMut(&mut [T], &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
@@ -199,7 +200,7 @@ pub trait DeviceTrait {
     fn build_input_stream_raw<D, E>(
         &self,
         config: &StreamConfig,
-        sample_format: RawSampleFormat,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -226,7 +227,7 @@ pub trait DeviceTrait {
     fn build_output_stream_raw<D, E>(
         &self,
         config: &StreamConfig,
-        sample_format: RawSampleFormat,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -239,7 +240,7 @@ pub trait DeviceTrait {
     fn build_output_stream_raw_new<A, E>(
         &self,
         config: &StreamConfig,
-        sample_format: RawSampleFormat,
+        sample_format: SampleFormat,
         audio_source: A,
         error_callback: E,
         timeout: Option<Duration>,

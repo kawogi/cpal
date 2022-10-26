@@ -5,9 +5,8 @@ extern crate cpal;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    SizedSample,
+    FromSample, Sample,
 };
-use cpal::{FromSample, Sample};
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "full"))]
 fn main() {
@@ -40,7 +39,7 @@ fn main() {
 
 fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
 where
-    T: SizedSample + FromSample<f32>,
+    T: Sample + FromSample<f32>,
 {
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;

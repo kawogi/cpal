@@ -8,9 +8,8 @@ extern crate cpal;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    SizedSample,
+    FromSample, Sample,
 };
-use cpal::{FromSample, Sample};
 
 fn main() -> anyhow::Result<()> {
     let stream = stream_setup_for(sample_next)?;
@@ -88,7 +87,7 @@ pub fn stream_make<T, F>(
     on_sample: F,
 ) -> Result<cpal::Stream, anyhow::Error>
 where
-    T: SizedSample + FromSample<f32>,
+    T: Sample + FromSample<f32>,
     F: FnMut(&mut SampleRequestOptions) -> f32 + std::marker::Send + 'static + Copy,
 {
     let sample_rate = config.sample_rate.0 as f32;

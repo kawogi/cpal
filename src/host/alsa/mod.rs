@@ -2,16 +2,18 @@ extern crate alsa;
 extern crate libc;
 extern crate parking_lot;
 
+use dasp_sample::{I24, U24};
+
 use self::alsa::poll::Descriptors;
 use self::parking_lot::Mutex;
 use crate::buffers::AudioSource;
-use crate::samples_formats::RawSampleFormat;
+use crate::samples_formats::SampleFormat;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crate::types::RawFormat;
+use crate::types::Encoding;
 use crate::{
-    types, BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
+    BackendSpecificError, BufferFactory, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleRate, SizedSample, StreamConfig,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleRate, StreamConfig,
     StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
@@ -93,7 +95,7 @@ impl DeviceTrait for Device {
     fn build_input_stream_raw<D, E>(
         &self,
         conf: &StreamConfig,
-        sample_format: RawSampleFormat,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -116,7 +118,7 @@ impl DeviceTrait for Device {
     fn build_output_stream_raw_new<A, E>(
         &self,
         conf: &StreamConfig,
-        sample_format: RawSampleFormat,
+        sample_format: SampleFormat,
         audio_source: A,
         error_callback: E,
         timeout: Option<std::time::Duration>,
@@ -139,7 +141,7 @@ impl DeviceTrait for Device {
     fn build_output_stream_raw<D, E>(
         &self,
         conf: &StreamConfig,
-        sample_format: RawSampleFormat,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -271,7 +273,7 @@ impl Device {
     fn build_stream_inner(
         &self,
         conf: &StreamConfig,
-        sample_format: RawSampleFormat,
+        sample_format: SampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, BuildStreamError> {
         let handle_result = self
@@ -395,6 +397,9 @@ impl Device {
         &self,
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
+        use alsa::pcm::Format as Alsa;
+        use SampleFormat as Cpal;
+
         let mut guard = self.handles.lock();
         let handle_result = guard
             .get_mut(&self.name, stream_t)
@@ -414,79 +419,25 @@ impl Device {
 
         let hw_params = alsa::pcm::HwParams::any(handle)?;
 
-        const FORMATS: [(RawSampleFormat, alsa::pcm::Format); 22] = [
-            (
-                RawSampleFormat::I8(types::i8::RawFormat::NE),
-                alsa::pcm::Format::S8,
-            ),
-            (
-                RawSampleFormat::U8(types::u8::RawFormat::NE),
-                alsa::pcm::Format::U8,
-            ),
-            (
-                RawSampleFormat::I16(types::i16::RawFormat::LE),
-                alsa::pcm::Format::S16LE,
-            ),
-            (
-                RawSampleFormat::I16(types::i16::RawFormat::BE),
-                alsa::pcm::Format::S16BE,
-            ),
-            (
-                RawSampleFormat::U16(types::u16::RawFormat::LE),
-                alsa::pcm::Format::U16LE,
-            ),
-            (
-                RawSampleFormat::U16(types::u16::RawFormat::BE),
-                alsa::pcm::Format::U16BE,
-            ),
-            (
-                RawSampleFormat::I24(types::i24::RawFormat::LE4B),
-                alsa::pcm::Format::S24LE,
-            ),
-            (
-                RawSampleFormat::I24(types::i24::RawFormat::BE4B),
-                alsa::pcm::Format::S24BE,
-            ),
-            (
-                RawSampleFormat::U24(types::u24::RawFormat::LE4B),
-                alsa::pcm::Format::U24LE,
-            ),
-            (
-                RawSampleFormat::U24(types::u24::RawFormat::BE4B),
-                alsa::pcm::Format::U24BE,
-            ),
-            (
-                RawSampleFormat::I32(types::i32::RawFormat::LE),
-                alsa::pcm::Format::S32LE,
-            ),
-            (
-                RawSampleFormat::I32(types::i32::RawFormat::BE),
-                alsa::pcm::Format::S32BE,
-            ),
-            (
-                RawSampleFormat::U32(types::u32::RawFormat::LE),
-                alsa::pcm::Format::U32LE,
-            ),
-            (
-                RawSampleFormat::U32(types::u32::RawFormat::BE),
-                alsa::pcm::Format::U32BE,
-            ),
-            (
-                RawSampleFormat::F32(types::f32::RawFormat::LE),
-                alsa::pcm::Format::FloatLE,
-            ),
-            (
-                RawSampleFormat::F32(types::f32::RawFormat::BE),
-                alsa::pcm::Format::FloatBE,
-            ),
-            (
-                RawSampleFormat::F64(types::f64::RawFormat::LE),
-                alsa::pcm::Format::Float64LE,
-            ),
-            (
-                RawSampleFormat::F64(types::f64::RawFormat::BE),
-                alsa::pcm::Format::Float64BE,
-            ),
+        const FORMATS: [(Cpal, Alsa); 22] = [
+            (Cpal::I8(<i8 as Sample>::Encoding::NE), Alsa::S8),
+            (Cpal::U8(<u8 as Sample>::Encoding::NE), Alsa::U8),
+            (Cpal::I16(<i16 as Sample>::Encoding::LE), Alsa::S16LE),
+            (Cpal::I16(<i16 as Sample>::Encoding::BE), Alsa::S16BE),
+            (Cpal::U16(<u16 as Sample>::Encoding::LE), Alsa::U16LE),
+            (Cpal::U16(<u16 as Sample>::Encoding::BE), Alsa::U16BE),
+            (Cpal::I24(<I24 as Sample>::Encoding::LE4B), Alsa::S24LE),
+            (Cpal::I24(<I24 as Sample>::Encoding::BE4B), Alsa::S24BE),
+            (Cpal::U24(<U24 as Sample>::Encoding::LE4B), Alsa::U24LE),
+            (Cpal::U24(<U24 as Sample>::Encoding::BE4B), Alsa::U24BE),
+            (Cpal::I32(<i32 as Sample>::Encoding::LE), Alsa::S32LE),
+            (Cpal::I32(<i32 as Sample>::Encoding::BE), Alsa::S32BE),
+            (Cpal::U32(<u32 as Sample>::Encoding::LE), Alsa::U32LE),
+            (Cpal::U32(<u32 as Sample>::Encoding::BE), Alsa::U32BE),
+            (Cpal::F32(<f32 as Sample>::Encoding::LE), Alsa::FloatLE),
+            (Cpal::F32(<f32 as Sample>::Encoding::BE), Alsa::FloatBE),
+            (Cpal::F64(<f64 as Sample>::Encoding::LE), Alsa::Float64LE),
+            (Cpal::F64(<f64 as Sample>::Encoding::BE), Alsa::Float64BE),
             //SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
             //SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
             //SND_PCM_FORMAT_MU_LAW,
@@ -495,54 +446,18 @@ impl Device {
             //SND_PCM_FORMAT_MPEG,
             //SND_PCM_FORMAT_GSM,
             //SND_PCM_FORMAT_SPECIAL,
-            (
-                RawSampleFormat::I24(types::i24::RawFormat::LE3B),
-                alsa::pcm::Format::S243LE,
-            ),
-            (
-                RawSampleFormat::I24(types::i24::RawFormat::BE3B),
-                alsa::pcm::Format::S243BE,
-            ),
-            (
-                RawSampleFormat::U24(types::u24::RawFormat::LE3B),
-                alsa::pcm::Format::U243LE,
-            ),
-            (
-                RawSampleFormat::U24(types::u24::RawFormat::BE3B),
-                alsa::pcm::Format::U243BE,
-            ),
-            // (
-            //     RawSampleFormat::I20(types::i20::RawFormat::LE3B),
-            //     alsa::pcm::Format::S203LE,
-            // ),
-            // (
-            //     RawSampleFormat::I20(types::i20::RawFormat::BE3B),
-            //     alsa::pcm::Format::S203BE,
-            // ),
-            // (
-            //     RawSampleFormat::U20(types::u20::RawFormat::LE3B),
-            //     alsa::pcm::Format::U203LE,
-            // ),
-            // (
-            //     RawSampleFormat::U20(types::u20::RawFormat::BE3B),
-            //     alsa::pcm::Format::U203BE,
-            // ),
-            // (
-            //     RawSampleFormat::I18(types::i18::RawFormat::LE3B),
-            //     alsa::pcm::Format::S183LE,
-            // ),
-            // (
-            //     RawSampleFormat::I18(types::i18::RawFormat::BE3B),
-            //     alsa::pcm::Format::S183BE,
-            // ),
-            // (
-            //     RawSampleFormat::U18(types::u18::RawFormat::LE3B),
-            //     alsa::pcm::Format::U183LE,
-            // ),
-            // (
-            //     RawSampleFormat::U18(types::u18::RawFormat::BE3B),
-            //     alsa::pcm::Format::U183BE,
-            // ),
+            (Cpal::I24(<I24 as Sample>::Encoding::LE3B), Alsa::S243LE),
+            (Cpal::I24(<I24 as Sample>::Encoding::BE3B), Alsa::S243BE),
+            (Cpal::U24(<U24 as Sample>::Encoding::LE3B), Alsa::U243LE),
+            (Cpal::U24(<U24 as Sample>::Encoding::BE3B), Alsa::U243BE),
+            // (Cpal::I20(<I20 as Sample>::Encoding::LE3B), Alsa::S203LE),
+            // (Cpal::I20(<I20 as Sample>::Encoding::BE3B), Alsa::S203BE),
+            // (Cpal::U20(<U20 as Sample>::Encoding::LE3B), Alsa::U203LE),
+            // (Cpal::U20(<U20 as Sample>::Encoding::BE3B), Alsa::U203BE),
+            // (Cpal::I18(<I18 as Sample>::Encoding::LE3B), Alsa::S183LE),
+            // (Cpal::I18(<I18 as Sample>::Encoding::BE3B), Alsa::S183BE),
+            // (Cpal::U18(<U18 as Sample>::Encoding::LE3B), Alsa::U183LE),
+            // (Cpal::U18(<U18 as Sample>::Encoding::BE3B), Alsa::U183BE),
         ];
 
         let mut supported_formats = Vec::new();
@@ -689,7 +604,7 @@ struct StreamInner {
     num_descriptors: usize,
 
     // Format of the samples.
-    sample_format: RawSampleFormat,
+    sample_format: SampleFormat,
 
     // The configuration used to open this stream.
     conf: StreamConfig,
@@ -1126,7 +1041,7 @@ where
         let frame_count = (sample_count / usize::from(channel_count)) as FrameCount;
 
         match sample_format {
-            RawSampleFormat::I8(_) => {
+            SampleFormat::I8(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1136,7 +1051,7 @@ where
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
                 data_callback.fill_buffer(buffer, &info);
             }
-            RawSampleFormat::I16(_) => {
+            SampleFormat::I16(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1146,7 +1061,7 @@ where
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
                 data_callback.fill_buffer(buffer, &info);
             }
-            RawSampleFormat::I24(_) => {
+            SampleFormat::I24(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1156,7 +1071,7 @@ where
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
                 data_callback.fill_buffer(buffer, &info);
             }
-            RawSampleFormat::I32(_) => {
+            SampleFormat::I32(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1166,7 +1081,7 @@ where
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
                 data_callback.fill_buffer(buffer, &info);
             }
-            RawSampleFormat::I64(_) => {
+            SampleFormat::I64(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1176,7 +1091,7 @@ where
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
                 data_callback.fill_buffer(buffer, &info);
             }
-            RawSampleFormat::U8(_) => {
+            SampleFormat::U8(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1186,7 +1101,7 @@ where
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
                 data_callback.fill_buffer(buffer, &info);
             }
-            RawSampleFormat::U16(_) => {
+            SampleFormat::U16(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1196,7 +1111,7 @@ where
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
                 data_callback.fill_buffer(buffer, &info);
             }
-            RawSampleFormat::U24(_) => {
+            SampleFormat::U24(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1206,7 +1121,7 @@ where
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
                 data_callback.fill_buffer(buffer, &info);
             }
-            RawSampleFormat::U32(_) => {
+            SampleFormat::U32(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1216,7 +1131,7 @@ where
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
                 data_callback.fill_buffer(buffer, &info);
             }
-            RawSampleFormat::U64(_) => {
+            SampleFormat::U64(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1226,7 +1141,7 @@ where
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
                 data_callback.fill_buffer(buffer, &info);
             }
-            RawSampleFormat::F32(_) => {
+            SampleFormat::F32(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1236,7 +1151,7 @@ where
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
                 data_callback.fill_buffer(buffer, &info);
             }
-            RawSampleFormat::F64(_) => {
+            SampleFormat::F64(_) => {
                 let buffer = A::Item::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
@@ -1446,46 +1361,48 @@ impl StreamTrait for Stream {
 fn set_hw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
-    sample_format: RawSampleFormat,
+    sample_format: SampleFormat,
 ) -> Result<bool, BackendSpecificError> {
+    use alsa::pcm::Format;
+
     let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
     let sample_format = match sample_format {
-        RawSampleFormat::I8(types::i8::RawFormat::NE) => alsa::pcm::Format::S8,
-        RawSampleFormat::I16(types::i16::RawFormat::LE) => alsa::pcm::Format::S16LE,
-        RawSampleFormat::I16(types::i16::RawFormat::BE) => alsa::pcm::Format::S16BE,
-        // RawSampleFormat::I18(types::i18::RawFormat::LE3B) => alsa::pcm::Format::S183LE,
-        // RawSampleFormat::I18(types::i18::RawFormat::BE3B) => alsa::pcm::Format::S183BE,
-        // RawSampleFormat::I20(types::i20::RawFormat::LE3B) => alsa::pcm::Format::S203LE,
-        // RawSampleFormat::I20(types::i20::RawFormat::BE3B) => alsa::pcm::Format::S203BE,
-        RawSampleFormat::I24(types::i24::RawFormat::LE3B) => alsa::pcm::Format::S243LE,
-        RawSampleFormat::I24(types::i24::RawFormat::BE3B) => alsa::pcm::Format::S243BE,
-        RawSampleFormat::I24(types::i24::RawFormat::LE4B) => alsa::pcm::Format::S24LE,
-        RawSampleFormat::I24(types::i24::RawFormat::BE4B) => alsa::pcm::Format::S24BE,
-        RawSampleFormat::I32(types::i32::RawFormat::LE) => alsa::pcm::Format::S32LE,
-        RawSampleFormat::I32(types::i32::RawFormat::BE) => alsa::pcm::Format::S32BE,
-        // RawSampleFormat::I64(types::i64::RawFormat::LE) => unimplemented!(),
-        // RawSampleFormat::I64(types::i64::RawFormat::BE) => unimplemented!(),
-        RawSampleFormat::U8(types::u8::RawFormat::NE) => alsa::pcm::Format::U8,
-        RawSampleFormat::U16(types::u16::RawFormat::LE) => alsa::pcm::Format::U16LE,
-        RawSampleFormat::U16(types::u16::RawFormat::BE) => alsa::pcm::Format::U16BE,
-        // RawSampleFormat::U18(types::u18::RawFormat::LE3B) => alsa::pcm::Format::U183LE,
-        // RawSampleFormat::U18(types::u18::RawFormat::BE3B) => alsa::pcm::Format::U183BE,
-        // RawSampleFormat::U20(types::u20::RawFormat::LE3B) => alsa::pcm::Format::U203LE,
-        // RawSampleFormat::U20(types::u20::RawFormat::BE3B) => alsa::pcm::Format::U203BE,
-        RawSampleFormat::U24(types::u24::RawFormat::LE3B) => alsa::pcm::Format::U243LE,
-        RawSampleFormat::U24(types::u24::RawFormat::BE3B) => alsa::pcm::Format::U243BE,
-        RawSampleFormat::U24(types::u24::RawFormat::LE4B) => alsa::pcm::Format::U24LE,
-        RawSampleFormat::U24(types::u24::RawFormat::BE4B) => alsa::pcm::Format::U24BE,
-        RawSampleFormat::U32(types::u32::RawFormat::LE) => alsa::pcm::Format::U32LE,
-        RawSampleFormat::U32(types::u32::RawFormat::BE) => alsa::pcm::Format::U32BE,
-        // RawSampleFormat::U64(types::u64::RawFormat::LE) => unimplemented!(),
-        // RawSampleFormat::U64(types::u64::RawFormat::BE) => unimplemented!(),
-        RawSampleFormat::F32(types::f32::RawFormat::LE) => alsa::pcm::Format::FloatLE,
-        RawSampleFormat::F32(types::f32::RawFormat::BE) => alsa::pcm::Format::FloatBE,
-        RawSampleFormat::F64(types::f64::RawFormat::LE) => alsa::pcm::Format::Float64LE,
-        RawSampleFormat::F64(types::f64::RawFormat::BE) => alsa::pcm::Format::Float64BE,
+        SampleFormat::I8(<i8 as Sample>::Encoding::NE) => Format::S8,
+        SampleFormat::I16(<i16 as Sample>::Encoding::LE) => Format::S16LE,
+        SampleFormat::I16(<i16 as Sample>::Encoding::BE) => Format::S16BE,
+        // RawSampleFormat::I18(<i18 as Sample>::Encoding::LE3B) => Format::S183LE,
+        // RawSampleFormat::I18(<i18 as Sample>::Encoding::BE3B) => Format::S183BE,
+        // RawSampleFormat::I20(<i20 as Sample>::Encoding::LE3B) => Format::S203LE,
+        // RawSampleFormat::I20(<i20 as Sample>::Encoding::BE3B) => Format::S203BE,
+        SampleFormat::I24(<I24 as Sample>::Encoding::LE3B) => Format::S243LE,
+        SampleFormat::I24(<I24 as Sample>::Encoding::BE3B) => Format::S243BE,
+        SampleFormat::I24(<I24 as Sample>::Encoding::LE4B) => Format::S24LE,
+        SampleFormat::I24(<I24 as Sample>::Encoding::BE4B) => Format::S24BE,
+        SampleFormat::I32(<i32 as Sample>::Encoding::LE) => Format::S32LE,
+        SampleFormat::I32(<i32 as Sample>::Encoding::BE) => Format::S32BE,
+        // RawSampleFormat::I64(<i64 as Sample>::Encoding::LE) => unimplemented!(),
+        // RawSampleFormat::I64(<i64 as Sample>::Encoding::BE) => unimplemented!(),
+        SampleFormat::U8(<u8 as Sample>::Encoding::NE) => Format::U8,
+        SampleFormat::U16(<u16 as Sample>::Encoding::LE) => Format::U16LE,
+        SampleFormat::U16(<u16 as Sample>::Encoding::BE) => Format::U16BE,
+        // RawSampleFormat::U18(<u18 as Sample>::Encoding::LE3B) => Format::U183LE,
+        // RawSampleFormat::U18(<u18 as Sample>::Encoding::BE3B) => Format::U183BE,
+        // RawSampleFormat::U20(<u20 as Sample>::Encoding::LE3B) => Format::U203LE,
+        // RawSampleFormat::U20(<u20 as Sample>::Encoding::BE3B) => Format::U203BE,
+        SampleFormat::U24(<U24 as Sample>::Encoding::LE3B) => Format::U243LE,
+        SampleFormat::U24(<U24 as Sample>::Encoding::BE3B) => Format::U243BE,
+        SampleFormat::U24(<U24 as Sample>::Encoding::LE4B) => Format::U24LE,
+        SampleFormat::U24(<U24 as Sample>::Encoding::BE4B) => Format::U24BE,
+        SampleFormat::U32(<u32 as Sample>::Encoding::LE) => Format::U32LE,
+        SampleFormat::U32(<u32 as Sample>::Encoding::BE) => Format::U32BE,
+        // RawSampleFormat::U64(<u64 as Sample>::Encoding::LE) => unimplemented!(),
+        // RawSampleFormat::U64(<u64 as Sample>::Encoding::BE) => unimplemented!(),
+        SampleFormat::F32(<f32 as Sample>::Encoding::LE) => Format::FloatLE,
+        SampleFormat::F32(<f32 as Sample>::Encoding::BE) => Format::FloatBE,
+        SampleFormat::F64(<f64 as Sample>::Encoding::LE) => Format::Float64LE,
+        SampleFormat::F64(<f64 as Sample>::Encoding::BE) => Format::Float64BE,
         sample_format => {
             return Err(BackendSpecificError {
                 description: format!(

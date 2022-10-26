@@ -1,52 +1,12 @@
-use std::{fmt::Display, mem};
+use std::mem;
 
-use crate::{sample_buffer, sized_sample};
+use crate::{sample_buffer, sample_primitive};
 
-use super::RawSample;
-use dasp_sample::Sample;
+use super::{RawSample, SimpleLittleBigEncoding};
 
 pub type Primitive = i64;
-pub const DEFAULT: Primitive = Primitive::EQUILIBRIUM;
-//pub const FORMAT: SampleFormat = SampleFormat::I64;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum RawFormat {
-    LE,
-    BE,
-}
-
-impl super::RawFormat for RawFormat {
-    #[inline]
-    #[must_use]
-    fn sample_size(self) -> usize {
-        match self {
-            Self::LE => mem::size_of::<LE>(),
-            Self::BE => mem::size_of::<BE>(),
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    fn is_le(self) -> bool {
-        matches!(self, Self::LE)
-    }
-
-    #[inline]
-    #[must_use]
-    fn is_be(self) -> bool {
-        matches!(self, Self::BE)
-    }
-}
-
-impl Display for RawFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            RawFormat::LE => "le",
-            RawFormat::BE => "be",
-        }
-        .fmt(f)
-    }
-}
+const DEFAULT: Primitive = <Primitive as dasp_sample::Sample>::EQUILIBRIUM;
+type Encoding = SimpleLittleBigEncoding<{ mem::size_of::<Primitive>() }>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(transparent)]
@@ -100,7 +60,7 @@ impl RawSample for BE {
     type Primitive = Primitive;
 }
 
-sized_sample!(I64: LE, BE);
-sample_buffer!(LE, BE);
+sample_primitive!(I64: LE, BE);
+sample_buffer!(I64: LE, BE);
 pub type F64SampleBuffer<'buffer> = SampleBuffer<'buffer>;
 pub type F64SampleBufferMut<'buffer> = SampleBufferMut<'buffer>;

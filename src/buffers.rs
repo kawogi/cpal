@@ -1,6 +1,6 @@
 use std::{mem::size_of, ops::Index, slice};
 
-use crate::{types::RawSample, ChannelCount, FrameCount, OutputCallbackInfo, SizedSample};
+use crate::{types::RawSample, ChannelCount, FrameCount, OutputCallbackInfo, Sample};
 
 pub mod interleaved;
 pub mod separated;
@@ -16,7 +16,7 @@ pub struct SampleAddress {
 }
 
 pub trait AudioSource: 'static + Send {
-    type Item: SizedSample;
+    type Item: Sample;
 
     fn fill_buffer<B>(&mut self, buffer: B, info: &OutputCallbackInfo)
     where
@@ -136,23 +136,23 @@ impl<'buffer, T: RawSample> SampleSlice<'buffer, T> {
 }
 
 /// Helper method to convert a byte slice into a slice of a different type (e.g. a `RawSample`).
-pub unsafe fn transmute_from_bytes<T: RawSample>(bytes: &[u8]) -> &[T] {
+pub fn transmute_from_bytes<T: RawSample>(bytes: &[u8]) -> &[T] {
     // make sure the buffer will have no dangling bytes after the conversion
     assert_eq!(bytes.len() % size_of::<T>(), 0);
     let element_count = bytes.len() / size_of::<T>();
 
     // transmute &[u8] -> &[T]
-    slice::from_raw_parts(bytes.as_ptr() as *const T, element_count)
+    unsafe { slice::from_raw_parts(bytes.as_ptr() as *const T, element_count) }
 }
 
 /// Helper method to convert a mutable byte slice into a slice of a different type (e.g. a `RawSample`).
-pub unsafe fn transmute_from_bytes_mut<T: RawSample>(bytes: &mut [u8]) -> &mut [T] {
+pub fn transmute_from_bytes_mut<T: RawSample>(bytes: &mut [u8]) -> &mut [T] {
     // make sure the buffer will have no dangling bytes after the conversion
     assert_eq!(bytes.len() % size_of::<T>(), 0);
     let element_count = bytes.len() / size_of::<T>();
 
     // transmute &mut [u8] -> &mut [T]
-    slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut T, element_count)
+    unsafe { slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut T, element_count) }
 }
 
 impl<'buffer, T: RawSample> IntoIterator for SampleSlice<'buffer, T> {
@@ -189,29 +189,37 @@ impl<'buffer, T: RawSample> Iterator for Samples<'buffer, T> {
 }
 
 #[macro_export]
-macro_rules! sized_sample {
+macro_rules! sample_primitive {
     ($self:ident: $($variant:ident),*) => {
-        impl $crate::SizedSample for Primitive {
-            //const FORMAT: $crate::SampleFormat = FORMAT;
+        impl $crate::Sample for Primitive {
+            type Encoding = Encoding;
 
-            type RawFormat = RawFormat;
+            fn supports_format(format: $crate::SampleFormat) -> bool {
+                matches!(format, $crate::SampleFormat::$self(_))
+            }
+        }
+    };
+}
+
+/// Implements enum wrappers for buffers to generalize over a set of `RawSamples` sharing the same base primitive.
+#[macro_export]
+macro_rules! sample_buffer {
+    ($self:ident: $($variant:ident),*) => {
+
+        impl $crate::BufferFactory for Primitive {
             type Buffer<'buffer> = SampleBuffer<'buffer>;
             type BufferMut<'buffer> = SampleBufferMut<'buffer>;
 
-            fn supports_format(format: $crate::RawSampleFormat) -> bool {
-                matches!(format, $crate::RawSampleFormat::$self(_))
-            }
-
             fn create_interleaved_buffer<'buffer>(
                 bytes: &'buffer [u8],
-                format: $crate::RawSampleFormat,
+                format: $crate::SampleFormat,
                 channel_count: $crate::ChannelCount,
                 frame_count: $crate::FrameCount,
             ) -> Option<Self::Buffer<'buffer>> {
                 match format {
                     $(
-                    $crate::RawSampleFormat::$self(RawFormat::$variant) => {
-                        let samples = unsafe { $crate::buffers::transmute_from_bytes::<$variant>(bytes) };
+                    $crate::SampleFormat::$self(Encoding::$variant) => {
+                        let samples = $crate::buffers::transmute_from_bytes::<$variant>(bytes);
                         let buffer = $crate::buffers::interleaved::InterleavedBuffer::new(
                             samples,
                             frame_count,
@@ -227,14 +235,14 @@ macro_rules! sized_sample {
 
             fn create_interleaved_buffer_mut<'buffer>(
                 bytes: &'buffer mut [u8],
-                format: $crate::RawSampleFormat,
+                format: $crate::SampleFormat,
                 channel_count: $crate::ChannelCount,
                 frame_count: $crate::FrameCount,
             ) -> Option<Self::BufferMut<'buffer>> {
                 match format {
                     $(
-                    $crate::RawSampleFormat::$self(RawFormat::$variant) => {
-                        let samples = unsafe { $crate::buffers::transmute_from_bytes_mut::<$variant>(bytes) };
+                    $crate::SampleFormat::$self(Encoding::$variant) => {
+                        let samples = $crate::buffers::transmute_from_bytes_mut::<$variant>(bytes);
                         let buffer = $crate::buffers::interleaved::InterleavedBufferMut::new(
                             samples,
                             frame_count,
@@ -248,13 +256,7 @@ macro_rules! sized_sample {
                 }
             }
         }
-    };
-}
 
-/// Implements enum wrappers for buffers to generalize over a set of `RawSamples` sharing the same base primitive.
-#[macro_export]
-macro_rules! sample_buffer {
-    ($($variant:ident),*) => {
         // Layout agnostic
 
         pub enum SampleBuffer<'buffer> {

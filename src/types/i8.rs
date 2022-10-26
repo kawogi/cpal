@@ -1,49 +1,12 @@
-use std::{fmt::Display, mem};
+use std::mem;
 
-use crate::{sample_buffer, sized_sample};
+use crate::{sample_buffer, sample_primitive};
 
-use super::RawSample;
-use dasp_sample::Sample;
+use super::{RawSample, SimpleEncoding};
 
 pub type Primitive = i8;
-pub const DEFAULT: Primitive = Primitive::EQUILIBRIUM;
-//pub const FORMAT: SampleFormat = SampleFormat::I8;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum RawFormat {
-    NE,
-}
-
-impl super::RawFormat for RawFormat {
-    #[inline]
-    #[must_use]
-    fn sample_size(self) -> usize {
-        match self {
-            Self::NE => mem::size_of::<NE>(),
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    fn is_le(self) -> bool {
-        matches!(self, Self::NE)
-    }
-
-    #[inline]
-    #[must_use]
-    fn is_be(self) -> bool {
-        matches!(self, Self::NE)
-    }
-}
-
-impl Display for RawFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            RawFormat::NE => "ne",
-        }
-        .fmt(f)
-    }
-}
+const DEFAULT: Primitive = <Primitive as dasp_sample::Sample>::EQUILIBRIUM;
+type Encoding = SimpleEncoding<{ mem::size_of::<Primitive>() }>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(transparent)]
@@ -71,7 +34,7 @@ impl RawSample for NE {
     type Primitive = Primitive;
 }
 
-sized_sample!(I8: NE);
-sample_buffer!(NE);
+sample_primitive!(I8: NE);
+sample_buffer!(I8: NE);
 pub type I8SampleBuffer<'buffer> = SampleBuffer<'buffer>;
 pub type I8SampleBufferMut<'buffer> = SampleBufferMut<'buffer>;

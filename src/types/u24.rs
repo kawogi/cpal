@@ -1,25 +1,24 @@
 use std::{fmt::Display, mem};
 
-use crate::{sample_buffer, sized_sample};
+use crate::{sample_buffer, sample_primitive};
 
 use super::RawSample;
-use dasp_sample::{Sample, U24};
 
-pub type Primitive = U24;
-pub const DEFAULT: Primitive = Primitive::EQUILIBRIUM;
+pub type Primitive = dasp_sample::U24;
+const DEFAULT: Primitive = <Primitive as dasp_sample::Sample>::EQUILIBRIUM;
 //pub const FORMAT: SampleFormat = SampleFormat::U24;
 // TODO ask author of `dasp_sample` why this couldn't be `u32`
 type Repr = i32;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum RawFormat {
+pub enum Encoding {
     LE3B,
     BE3B,
     LE4B,
     BE4B,
 }
 
-impl super::RawFormat for RawFormat {
+impl super::Encoding for Encoding {
     #[inline]
     #[must_use]
     fn sample_size(self) -> usize {
@@ -44,13 +43,13 @@ impl super::RawFormat for RawFormat {
     }
 }
 
-impl Display for RawFormat {
+impl Display for Encoding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            RawFormat::LE3B => "le3b",
-            RawFormat::BE3B => "be3b",
-            RawFormat::LE4B => "le4b",
-            RawFormat::BE4B => "be4b",
+            Encoding::LE3B => "le3b",
+            Encoding::BE3B => "be3b",
+            Encoding::LE4B => "le4b",
+            Encoding::BE4B => "be4b",
         }
         .fmt(f)
     }
@@ -200,8 +199,8 @@ impl PartialEq for BE4B {
 
 impl Eq for BE4B {}
 
-sized_sample!(U24: LE3B, BE3B, LE4B, BE4B);
-sample_buffer!(LE3B, BE3B, LE4B, BE4B);
+sample_primitive!(U24: LE3B, BE3B, LE4B, BE4B);
+sample_buffer!(U24: LE3B, BE3B, LE4B, BE4B);
 pub type U24SampleBuffer<'buffer> = SampleBuffer<'buffer>;
 pub type U24SampleBufferMut<'buffer> = SampleBufferMut<'buffer>;
 
@@ -213,7 +212,7 @@ mod tests {
     fn test_le3b() {
         {
             // default
-            let primitive = Primitive::EQUILIBRIUM;
+            let primitive = <Primitive as dasp_sample::Sample>::EQUILIBRIUM;
             let raw = LE3B::default();
             assert_eq!(Primitive::from(raw), primitive);
             assert_eq!(LE3B::from(primitive), raw);
@@ -272,7 +271,7 @@ mod tests {
     fn test_be3b() {
         {
             // default
-            let primitive = Primitive::EQUILIBRIUM;
+            let primitive = <Primitive as dasp_sample::Sample>::EQUILIBRIUM;
             let raw = BE3B::default();
             assert_eq!(Primitive::from(raw), primitive);
             assert_eq!(BE3B::from(primitive), raw);
@@ -332,7 +331,7 @@ mod tests {
         let undefined = 123;
         {
             // default
-            let primitive = Primitive::EQUILIBRIUM;
+            let primitive = <Primitive as dasp_sample::Sample>::EQUILIBRIUM;
             let raw = LE4B::default();
             assert_eq!(Primitive::from(raw), primitive);
             assert_eq!(LE4B::from(primitive), raw);
@@ -392,7 +391,7 @@ mod tests {
         let undefined = 123;
         {
             // default
-            let primitive = Primitive::EQUILIBRIUM;
+            let primitive = <Primitive as dasp_sample::Sample>::EQUILIBRIUM;
             let raw = BE4B::default();
             assert_eq!(Primitive::from(raw), primitive);
             assert_eq!(BE4B::from(primitive), raw);
