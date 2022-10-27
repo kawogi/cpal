@@ -11,9 +11,15 @@ extern crate clap;
 extern crate cpal;
 extern crate ringbuf;
 
+use std::iter;
+
 use anyhow::Context;
 use clap::arg;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{
+    buffers::{SampleBuffer, SampleBufferMut},
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    BufferFactory,
+};
 use ringbuf::RingBuffer;
 
 #[derive(Debug)]
@@ -169,9 +175,10 @@ fn main() -> anyhow::Result<()> {
         producer.push(0.0).unwrap();
     }
 
-    let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+    let input_data_fn = move |data: <f32 as BufferFactory>::Buffer<'_>,
+                              _: &cpal::InputCallbackInfo| {
         let mut output_fell_behind = false;
-        for &sample in data {
+        for sample in data.samples_interleaved() {
             if producer.push(sample).is_err() {
                 output_fell_behind = true;
             }
@@ -181,17 +188,19 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+    let output_data_fn = move |mut data: <f32 as BufferFactory>::BufferMut<'_>,
+                               _: &cpal::OutputCallbackInfo| {
         let mut input_fell_behind = false;
-        for sample in data {
-            *sample = match consumer.pop() {
-                Some(s) => s,
-                None => {
-                    input_fell_behind = true;
-                    0.0
-                }
-            };
-        }
+
+        let samples = iter::repeat_with(|| {
+            consumer.pop().unwrap_or_else(|| {
+                input_fell_behind = true;
+                0.0
+            })
+        });
+
+        data.write_samples_interleaved(samples);
+
         if input_fell_behind {
             eprintln!("input stream fell behind: try increasing latency");
         }
@@ -202,8 +211,10 @@ fn main() -> anyhow::Result<()> {
         "Attempting to build both streams with f32 samples and `{:?}`.",
         config
     );
-    let input_stream = input_device.build_input_stream(&config, input_data_fn, err_fn, None)?;
-    let output_stream = output_device.build_output_stream(&config, output_data_fn, err_fn, None)?;
+    let input_stream =
+        input_device.build_input_stream::<f32, _, _>(&config, input_data_fn, err_fn, None)?;
+    let output_stream =
+        output_device.build_output_stream::<f32, _, _>(&config, output_data_fn, err_fn, None)?;
     println!("Successfully built streams.");
 
     // Play the streams.

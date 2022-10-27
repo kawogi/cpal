@@ -8,7 +8,7 @@ use clap::arg;
 use cpal::{
     buffers::SampleBufferMut,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    ChannelCount, Device, FromSample, Host, Sample, SampleFormat, SampleRate, StreamConfig,
+    Device, FromSample, Host, Sample, SampleFormat, SampleRate, StreamConfig,
     SupportedStreamConfig, I24, U24,
 };
 
@@ -121,14 +121,13 @@ impl<T: Sample + FromSample<f32>> Sinus<T> {
         )
     }
 
-    fn next_frame(&mut self, channel_count: ChannelCount) -> impl Iterator<Item = T> {
-        iter::repeat(self.next()).take(usize::from(channel_count))
+    fn next_frame(&mut self) -> impl Iterator<Item = T> {
+        iter::repeat(self.next())
     }
 
     fn into_callback(mut self) -> impl FnMut(T::BufferMut<'_>, &cpal::OutputCallbackInfo) {
         move |mut buffer, _info| {
-            let channel_count = buffer.channel_count();
-            buffer.write_frames(iter::repeat_with(|| self.next_frame(channel_count)));
+            buffer.write_frames(iter::repeat_with(|| self.next_frame()));
         }
     }
 }

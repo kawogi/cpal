@@ -3,9 +3,12 @@
 extern crate anyhow;
 extern crate cpal;
 
+use std::iter;
+
 use cpal::{
+    buffers::SampleBufferMut,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    FromSample, Sample,
+    FromSample, Sample, I24, U24,
 };
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "full"))]
@@ -19,20 +22,20 @@ fn main() {
     let config = device.default_output_config().unwrap();
 
     match config.sample_format() {
-        cpal::SampleFormat::I8 => run::<i8>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()).unwrap(),
-        // cpal::SampleFormat::I24 => run::<I24>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::I32 => run::<i32>(&device, &config.into()).unwrap(),
-        // cpal::SampleFormat::I48 => run::<I48>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::I64 => run::<i64>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::U8 => run::<u8>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()).unwrap(),
-        // cpal::SampleFormat::U24 => run::<U24>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::U32 => run::<u32>(&device, &config.into()).unwrap(),
-        // cpal::SampleFormat::U48 => run::<U48>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::U64 => run::<u64>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::F64 => run::<f64>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::I8(_) => run::<i8>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::I16(_) => run::<i16>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::I24(_) => run::<I24>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::I32(_) => run::<i32>(&device, &config.into()).unwrap(),
+        // cpal::SampleFormat::I48(_) => run::<I48>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::I64(_) => run::<i64>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::U8(_) => run::<u8>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::U16(_) => run::<u16>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::U24(_) => run::<U24>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::U32(_) => run::<u32>(&device, &config.into()).unwrap(),
+        // cpal::SampleFormat::U48(_) => run::<U48>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::U64(_) => run::<u64>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::F32(_) => run::<f32>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::F64(_) => run::<f64>(&device, &config.into()).unwrap(),
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
 }
@@ -42,7 +45,6 @@ where
     T: Sample + FromSample<f32>,
 {
     let sample_rate = config.sample_rate.0 as f32;
-    let channels = config.channels as usize;
 
     // Produce a sinusoid of maximum amplitude.
     let mut sample_clock = 0f32;
@@ -53,10 +55,10 @@ where
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
-    let stream = device.build_output_stream(
+    let stream = device.build_output_stream::<T, _, _>(
         config,
-        move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-            write_data(data, channels, &mut next_value)
+        move |data: T::BufferMut<'_>, _: &cpal::OutputCallbackInfo| {
+            write_data::<T>(data, &mut next_value)
         },
         err_fn,
         None,
@@ -68,14 +70,10 @@ where
     Ok(())
 }
 
-fn write_data<T>(output: &mut [T], channels: usize, next_sample: &mut dyn FnMut() -> f32)
+fn write_data<T>(mut output: T::BufferMut<'_>, next_sample: &mut dyn FnMut() -> f32)
 where
     T: Sample + FromSample<f32>,
 {
-    for frame in output.chunks_mut(channels) {
-        let value: T = T::from_sample(next_sample());
-        for sample in frame.iter_mut() {
-            *sample = value;
-        }
-    }
+    let next_frame = || iter::repeat(T::from_sample(next_sample()));
+    output.write_frames(iter::repeat_with(next_frame));
 }
