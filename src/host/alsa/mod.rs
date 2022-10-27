@@ -9,10 +9,10 @@ use self::parking_lot::Mutex;
 use crate::samples::{Encoding, SampleFormat};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleRate, StreamConfig,
-    StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, DefaultStreamConfigError,
+    DeviceNameError, DevicesError, FrameCount, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, Sample, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 use std::cmp;
@@ -90,7 +90,7 @@ impl DeviceTrait for Device {
         Device::default_output_config(self)
     }
 
-    fn build_input_stream_raw<D, E>(
+    fn build_input_stream_raw<T, D, E>(
         &self,
         config: &StreamConfig,
         data_callback: D,
@@ -98,7 +98,8 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        T: Sample,
+        D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner = self.build_stream_inner(config, alsa::Direction::Capture)?;
@@ -579,13 +580,17 @@ impl StreamWorkerContext {
     }
 }
 
-fn input_stream_worker(
+fn input_stream_worker<T, D, E>(
     rx: TriggerReceiver,
     stream: &StreamInner,
-    data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
-    error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
+    data_callback: &mut D,
+    error_callback: &mut E,
     timeout: Option<Duration>,
-) {
+) where
+    T: Sample,
+    D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
+    E: FnMut(StreamError) + Send + 'static,
+{
     let mut ctxt = StreamWorkerContext::new(&timeout);
     loop {
         let flow =
@@ -785,13 +790,27 @@ fn poll_descriptors_and_prepare_buffer(
 }
 
 // Read input data from ALSA and deliver it to the user.
-fn process_input(
+fn process_input<T, D>(
     stream: &StreamInner,
     buffer: &mut [u8],
     status: alsa::pcm::Status,
     delay_frames: usize,
-    data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
-) -> Result<(), BackendSpecificError> {
+    data_callback: &mut D,
+) -> Result<(), BackendSpecificError>
+where
+    T: Sample,
+    D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
+{
+    let info = {
+        let callback = stream_timestamp(&status, stream.creation_instant)?;
+        let delay_duration = frames_to_duration(delay_frames, stream.config.sample_rate);
+        let capture = callback
+            .sub(delay_duration)
+            .expect("`capture` is earlier than representation supported by `StreamInstant`");
+        let timestamp = crate::InputStreamTimestamp { callback, capture };
+        crate::InputCallbackInfo { timestamp }
+    };
+
     let frame_count = FrameCount::try_from(stream.channel.io_bytes().readi(buffer)?)
         .unwrap_or_else(|count| {
             panic!(
@@ -799,27 +818,17 @@ fn process_input(
                 FrameCount::MAX
             )
         });
-    //stream.channel.io_bytes().readi(buffer)?;
-    println!("frame count: {frame_count}");
+
     let sample_format = stream.config.sample_format;
-    let data = buffer.as_mut_ptr() as *mut ();
-    let len = buffer.len() / sample_format.sample_size();
-    let data = unsafe { Data::from_parts(data, len, sample_format) };
-    let callback = stream_timestamp(&status, stream.creation_instant)?;
-    let delay_duration = frames_to_duration(delay_frames, stream.config.sample_rate);
-    let capture = callback
-        .sub(delay_duration)
-        .expect("`capture` is earlier than representation supported by `StreamInstant`");
-    let timestamp = crate::InputStreamTimestamp { callback, capture };
-    let info = crate::InputCallbackInfo { timestamp };
-    data_callback(&data, &info);
+    let channel_count = stream.config.channels;
+    let buffer = T::create_interleaved_buffer(buffer, sample_format, channel_count, frame_count)
+        .unwrap_or_else(|| panic!("buffer size or type mismatch"));
+    data_callback(buffer, &info);
 
     Ok(())
 }
 
 // Request data from the user's function and write it via ALSA.
-//
-// Returns `true`
 fn process_output<T, D, E>(
     stream: &StreamInner,
     buffer: &mut [u8],
@@ -834,144 +843,29 @@ where
     D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
-    {
-        // We're now sure that we're ready to write data.
+    // We're now sure that we're ready to write data.
+    let info = {
         let callback = stream_timestamp(&status, stream.creation_instant)?;
         let delay_duration = frames_to_duration(delay_frames, stream.config.sample_rate);
         let playback = callback
             .add(delay_duration)
             .expect("`playback` occurs beyond representation supported by `StreamInstant`");
         let timestamp = crate::OutputStreamTimestamp { callback, playback };
-        let info = crate::OutputCallbackInfo { timestamp };
+        crate::OutputCallbackInfo { timestamp }
+    };
 
+    {
         let sample_format = stream.config.sample_format;
         let sample_count = buffer.len() / sample_format.sample_size();
         let channel_count = stream.config.channels;
         let frame_count = (sample_count / usize::from(channel_count)) as FrameCount;
 
-        match sample_format {
-            SampleFormat::I8(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-            SampleFormat::I16(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-            SampleFormat::I24(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-            SampleFormat::I32(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-            SampleFormat::I64(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-            SampleFormat::U8(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-            SampleFormat::U16(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-            SampleFormat::U24(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-            SampleFormat::U32(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-            SampleFormat::U64(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-            SampleFormat::F32(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-            SampleFormat::F64(_) => {
-                let buffer = T::create_interleaved_buffer_mut(
-                    buffer,
-                    sample_format,
-                    channel_count,
-                    frame_count,
-                )
-                .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback(buffer, &info);
-            }
-        }
+        let buffer =
+            T::create_interleaved_buffer_mut(buffer, sample_format, channel_count, frame_count)
+                .unwrap_or_else(|| panic!("buffer size or type mismatch"));
+        data_callback(buffer, &info);
     }
+
     loop {
         match stream.channel.io_bytes().writei(buffer) {
             Err(err) if err.errno() == alsa::nix::errno::Errno::EPIPE => {
@@ -1052,14 +946,15 @@ fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Dura
 }
 
 impl Stream {
-    fn new_input<D, E>(
+    fn new_input<T, D, E>(
         inner: Arc<StreamInner>,
         mut data_callback: D,
         mut error_callback: E,
         timeout: Option<Duration>,
     ) -> Stream
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        T: Sample,
+        D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let (tx, rx) = trigger();

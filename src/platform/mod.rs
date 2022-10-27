@@ -354,7 +354,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn build_input_stream_raw<D, E>(
+            fn build_input_stream_raw<T, D, E>(
                 &self,
                 config: &crate::StreamConfig,
                 data_callback: D,
@@ -362,7 +362,8 @@ macro_rules! impl_platform_host {
                 timeout: Option<std::time::Duration>,
             ) -> Result<Self::Stream, crate::BuildStreamError>
             where
-                D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
+                T: crate::Sample,
+                D: FnMut(T::Buffer<'_>, &crate::InputCallbackInfo) + Send + 'static,
                 E: FnMut(crate::StreamError) + Send + 'static,
             {
                 match self.0 {
