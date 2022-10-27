@@ -8,9 +8,9 @@ use clap::arg;
 use cpal::{
     buffers::SampleBufferMut,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    ChannelCount, Device, Host, Sample, SampleRate, StreamConfig, SupportedStreamConfig, I24, U24,
+    ChannelCount, Device, FromSample, Host, Sample, SampleFormat, SampleRate, StreamConfig,
+    SupportedStreamConfig, I24, U24,
 };
-use cpal::{FromSample, SampleFormat};
 
 #[derive(Debug)]
 struct Opt {
@@ -98,7 +98,6 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-// Produce a sinusoid of maximum amplitude.
 struct Sinus<T> {
     sample_clock: f32,
     sample_rate: f32,
@@ -134,19 +133,6 @@ impl<T: Sample + FromSample<f32>> Sinus<T> {
     }
 }
 
-// impl<T: Sample + FromSample<f32>> AudioSource for Sinus<T> {
-//     type Item = T;
-
-//     fn fill_buffer<'buffer, B: SampleBufferMut<Item = T>>(
-//         &mut self,
-//         mut buffer: B,
-//         _info: &OutputCallbackInfo,
-//     ) {
-//         let channel_count = buffer.channel_count();
-//         buffer.write_frames(iter::repeat_with(|| self.next_frame(channel_count)));
-//     }
-// }
-
 fn beep<T>(device: &cpal::Device, config: SupportedStreamConfig) -> Result<(), anyhow::Error>
 where
     T: Sample + FromSample<f32>,
@@ -154,23 +140,6 @@ where
     let config = StreamConfig::from(config);
     let audio_source = Sinus::<T>::new(config.sample_rate);
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
-
-    // //let channels = config.channels as usize;
-    // let callback = move |mut buffer: <T as BufferFactory>::BufferMut<'_>,
-    //                      _info: &cpal::OutputCallbackInfo| {
-    //     println!(
-    //         "fill_buffer: frames {}, channels {}",
-    //         buffer.frame_count(),
-    //         buffer.channel_count()
-    //     );
-    //     let channel_count = buffer.channel_count();
-    //     //let v = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-    //     //buffer.write_frames(iter::repeat_with(|| audio_source.next_frame(channel_count)));
-    //     buffer.write_frames(iter::repeat_with(|| {
-    //         let i = audio_source.v.iter().map(|&s| T::from_sample(s));
-    //         i
-    //     }));
-    // };
 
     let stream = device.build_output_stream(&config, audio_source.into_callback(), err_fn, None)?;
     stream.play()?;
