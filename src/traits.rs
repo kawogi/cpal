@@ -3,10 +3,10 @@
 use std::time::Duration;
 
 use crate::{
-    BuildStreamError, DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo,
-    InputDevices, OutputCallbackInfo, OutputDevices, PauseStreamError, PlayStreamError, Sample,
-    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BufferFactory, BuildStreamError, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, PauseStreamError,
+    PlayStreamError, Sample, StreamConfig, StreamError, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 /// A **Host** provides access to the available audio devices on the system.
@@ -153,7 +153,7 @@ pub trait DeviceTrait {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
+        T: BufferFactory,
         D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
@@ -170,7 +170,7 @@ pub trait DeviceTrait {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
+        T: BufferFactory,
         D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
@@ -186,7 +186,7 @@ pub trait DeviceTrait {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
+        T: BufferFactory,
         D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 
@@ -199,7 +199,7 @@ pub trait DeviceTrait {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
+        T: BufferFactory,
         D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 }

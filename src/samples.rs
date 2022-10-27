@@ -62,6 +62,12 @@ pub enum SampleFormat {
     F64(<f64 as Sample>::Encoding),
 }
 
+impl SampleFormat {
+    pub fn is_float(self) -> bool {
+        matches!(self, Self::F32(_) | Self::F64(_))
+    }
+}
+
 impl Encoding for SampleFormat {
     /// Returns the size in bytes of a sample of this format.
     #[inline]

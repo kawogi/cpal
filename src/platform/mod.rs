@@ -362,7 +362,7 @@ macro_rules! impl_platform_host {
                 timeout: Option<std::time::Duration>,
             ) -> Result<Self::Stream, crate::BuildStreamError>
             where
-                T: crate::Sample,
+                T: crate::BufferFactory,
                 D: FnMut(T::Buffer<'_>, &crate::InputCallbackInfo) + Send + 'static,
                 E: FnMut(crate::StreamError) + Send + 'static,
             {
@@ -390,7 +390,7 @@ macro_rules! impl_platform_host {
                 timeout: Option<std::time::Duration>,
             ) -> Result<Self::Stream, crate::BuildStreamError>
             where
-                T: crate::Sample,
+                T: crate::BufferFactory,
                 D: FnMut(T::BufferMut<'_>, &crate::OutputCallbackInfo) + Send + 'static,
                 E: FnMut(crate::StreamError) + Send + 'static,
             {

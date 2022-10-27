@@ -9,10 +9,10 @@ use self::parking_lot::Mutex;
 use crate::samples::{Encoding, SampleFormat};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, FrameCount, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, Sample, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    BackendSpecificError, BufferFactory, BufferSize, BuildStreamError, ChannelCount,
+    DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleRate, StreamConfig,
+    StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 use std::cmp;
@@ -98,7 +98,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
+        T: BufferFactory,
         D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
@@ -120,7 +120,7 @@ impl DeviceTrait for Device {
         timeout: Option<std::time::Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
+        T: BufferFactory,
         D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
@@ -587,7 +587,7 @@ fn input_stream_worker<T, D, E>(
     error_callback: &mut E,
     timeout: Option<Duration>,
 ) where
-    T: Sample,
+    T: BufferFactory,
     D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
@@ -642,7 +642,7 @@ fn output_stream_worker<T, D, E>(
     error_callback: &mut E,
     timeout: Option<Duration>,
 ) where
-    T: Sample,
+    T: BufferFactory,
     D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
@@ -798,7 +798,7 @@ fn process_input<T, D>(
     data_callback: &mut D,
 ) -> Result<(), BackendSpecificError>
 where
-    T: Sample,
+    T: BufferFactory,
     D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
 {
     let info = {
@@ -839,7 +839,7 @@ fn process_output<T, D, E>(
     error_callback: &mut E,
 ) -> Result<(), BackendSpecificError>
 where
-    T: Sample,
+    T: BufferFactory,
     D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
@@ -953,7 +953,7 @@ impl Stream {
         timeout: Option<Duration>,
     ) -> Stream
     where
-        T: Sample,
+        T: BufferFactory,
         D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
@@ -986,7 +986,7 @@ impl Stream {
         timeout: Option<Duration>,
     ) -> Stream
     where
-        T: Sample,
+        T: BufferFactory,
         D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {

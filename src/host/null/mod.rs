@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BuildStreamError, DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, StreamConfig, StreamError,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BufferFactory, BuildStreamError, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, StreamConfig,
+    StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 #[derive(Default)]
@@ -76,7 +76,7 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
+        T: BufferFactory,
         D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
@@ -91,7 +91,7 @@ impl DeviceTrait for Device {
         _timeout: Option<std::time::Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
+        T: BufferFactory,
         D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
