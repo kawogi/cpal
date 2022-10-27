@@ -1,3 +1,6 @@
+// reason: this is by convention
+#![allow(clippy::module_name_repetitions)]
+
 use thiserror::Error;
 
 /// The requested host, although supported on this platform, is unavailable.

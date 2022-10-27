@@ -1,3 +1,6 @@
+// reason: allows for some convenience aliases
+#![allow(clippy::module_name_repetitions)]
+
 use std::{fmt::Display, mem};
 
 use crate::{sample_buffer, sample_primitive};

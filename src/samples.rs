@@ -63,6 +63,7 @@ pub enum SampleFormat {
 }
 
 impl SampleFormat {
+    #[must_use]
     pub fn is_float(self) -> bool {
         matches!(self, Self::F32(_) | Self::F64(_))
     }
@@ -73,6 +74,8 @@ impl Encoding for SampleFormat {
     #[inline]
     #[must_use]
     fn sample_size(self) -> usize {
+        // reason: merging would be based on unstable internals of the types
+        #[allow(clippy::match_same_arms)]
         match self {
             Self::I8(format) => format.sample_size(),
             Self::I16(format) => format.sample_size(),
@@ -92,6 +95,8 @@ impl Encoding for SampleFormat {
     #[inline]
     #[must_use]
     fn is_le(self) -> bool {
+        // reason: merging would be based on unstable internals of the types
+        #[allow(clippy::match_same_arms)]
         match self {
             Self::I8(format) => format.is_le(),
             Self::I16(format) => format.is_le(),
@@ -111,6 +116,8 @@ impl Encoding for SampleFormat {
     #[inline]
     #[must_use]
     fn is_be(self) -> bool {
+        // reason: merging would be based on unstable internals of the types
+        #[allow(clippy::match_same_arms)]
         match self {
             Self::I8(format) => format.is_be(),
             Self::I16(format) => format.is_be(),
@@ -130,6 +137,8 @@ impl Encoding for SampleFormat {
     #[inline]
     #[must_use]
     fn is_ne(self) -> bool {
+        // reason: merging would be based on unstable internals of the types
+        #[allow(clippy::match_same_arms)]
         match self {
             Self::I8(format) => format.is_ne(),
             Self::I16(format) => format.is_ne(),
@@ -210,7 +219,7 @@ pub trait Encoding: Copy {
     }
 }
 
-/// Simple raw format descriptor where only the variants _little endian_ and _big_endian_ exist and both types share
+/// Simple raw format descriptor where only the variants _little endian_ and _big endian_ exist and both types share
 /// the same size.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SimpleLittleBigEncoding<const SIZE: usize> {

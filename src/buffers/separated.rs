@@ -1,3 +1,5 @@
+#![allow(clippy::module_name_repetitions)]
+
 use std::ops::{Index, Range};
 
 use itertools::Itertools;
@@ -13,8 +15,11 @@ pub struct SeparatedBuffer<'buffer, T: RawSample> {
 }
 
 impl<'buffer, T: RawSample> SeparatedBuffer<'buffer, T> {
+    /// # Panics
+    /// - The number of channels need to fit into `ChannelCount`.
+    /// - All channels are required to have exactly `frame_count` entries.
     pub fn new(channels: &'buffer [&'buffer [T]], frame_count: FrameCount) -> Self {
-        assert!(FrameCount::try_from(channels.len()).is_ok());
+        assert!(ChannelCount::try_from(channels.len()).is_ok());
         assert!(channels
             .iter()
             .all(|channel| FrameCount::try_from(channel.len()) == Ok(frame_count)));
@@ -57,7 +62,9 @@ impl<'buffer, T: RawSample> SampleBuffer for SeparatedBuffer<'buffer, T> {
     }
 
     fn channel_count(&self) -> ChannelCount {
-        self.channels.len() as ChannelCount
+        // reason: we made sure the length is within bounds at construction time
+        #[allow(clippy::cast_possible_truncation)]
+        return self.channels.len() as ChannelCount;
     }
 
     fn channel(&self, index: super::ChannelIndex) -> Self::Channel {
@@ -228,6 +235,8 @@ impl<'buffer, T: RawSample> Iterator for SeparatedSamplesInterleaved<'buffer, T>
             );
 
             self.channel_index += 1;
+            // reason: we made sure the length is within bounds at construction time
+            #[allow(clippy::cast_possible_truncation)]
             if self.channel_index == self.channels.len() as ChannelCount {
                 self.channel_index = 0;
                 self.frame_index += 1;
@@ -274,6 +283,9 @@ pub struct SeparatedBufferMut<'buffer, T: RawSample> {
 }
 
 impl<'buffer, T: RawSample> SeparatedBufferMut<'buffer, T> {
+    /// # Panics
+    /// - The number of channels need to fit into `ChannelCount`.
+    /// - All channels are required to have exactly `frame_count` entries.
     pub fn new(channels: &'buffer mut [&'buffer mut [T]], frame_count: FrameCount) -> Self {
         assert!(ChannelCount::try_from(channels.len()).is_ok());
         assert!(channels
@@ -314,16 +326,17 @@ impl<'buffer, T: RawSample> SampleBufferMut for SeparatedBufferMut<'buffer, T> {
         Frame: IntoIterator<Item = Sample>,
         T::Primitive: From<Sample>,
     {
-        frames
-            .into_iter()
-            .enumerate()
+        (0..self.frame_count)
+            .zip(frames)
             .for_each(|(frame_index, frame_in)| {
-                self.write_frame(frame_index as FrameIndex, frame_in)
+                self.write_frame(frame_index, frame_in);
             });
     }
 
     fn channel_count(&self) -> ChannelCount {
-        self.channels.len() as ChannelCount
+        // reason: we made sure the length is within bounds at construction time
+        #[allow(clippy::cast_possible_truncation)]
+        return self.channels.len() as ChannelCount;
     }
 
     fn write_channel<Channel, Sample>(&mut self, index: ChannelIndex, channel: Channel)

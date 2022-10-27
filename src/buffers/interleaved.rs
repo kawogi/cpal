@@ -1,3 +1,5 @@
+#![allow(clippy::module_name_repetitions)]
+
 use std::{
     iter::{Cycle, Skip, StepBy, Zip},
     ops::{Index, Range},
@@ -21,6 +23,9 @@ pub struct InterleavedBuffer<'buffer, T: RawSample> {
 }
 
 impl<'buffer, T: RawSample> InterleavedBuffer<'buffer, T> {
+    /// # Panics
+    /// The given buffer is required to hold exactly the number of specified samples. The sample count is
+    /// `frame_count * channel_count`.
     pub fn new(
         samples: &'buffer [T],
         frame_count: FrameCount,
@@ -281,6 +286,9 @@ pub struct InterleavedBufferMut<'buffer, T: RawSample> {
 }
 
 impl<'buffer, T: RawSample> InterleavedBufferMut<'buffer, T> {
+    /// # Panics
+    /// The given buffer is required to hold exactly the number of specified samples. The sample count is
+    /// `frame_count * channel_count`.
     pub fn new(
         samples: &'buffer mut [T],
         frame_count: FrameCount,
@@ -370,11 +378,10 @@ impl<'buffer, T: RawSample> SampleBufferMut for InterleavedBufferMut<'buffer, T>
         Channel: IntoIterator<Item = Sample>,
         T::Primitive: From<Sample>,
     {
-        channels
-            .into_iter()
-            .enumerate()
+        (0..self.channel_count)
+            .zip(channels)
             .for_each(|(channel_index, channel)| {
-                self.write_channel(channel_index as ChannelIndex, channel)
+                self.write_channel(channel_index, channel);
             });
     }
 

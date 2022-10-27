@@ -128,23 +128,31 @@ impl<'buffer, T: RawSample> SampleSlice<'buffer, T> {
 }
 
 /// Helper method to convert a byte slice into a slice of a different type (e.g. a `RawSample`).
+///
+/// # Panics
+/// The length of the given buffer must be evenly divisible by the the byte size of the sample type.
+#[must_use]
 pub fn transmute_from_bytes<T: RawSample>(bytes: &[u8]) -> &[T] {
     // make sure the buffer will have no dangling bytes after the conversion
     assert_eq!(bytes.len() % size_of::<T>(), 0);
     let element_count = bytes.len() / size_of::<T>();
 
     // transmute &[u8] -> &[T]
-    unsafe { slice::from_raw_parts(bytes.as_ptr() as *const T, element_count) }
+    unsafe { slice::from_raw_parts(bytes.as_ptr().cast::<T>(), element_count) }
 }
 
 /// Helper method to convert a mutable byte slice into a slice of a different type (e.g. a `RawSample`).
+///
+/// # Panics
+/// The length of the given buffer must be evenly divisible by the the byte size of the sample type.
+#[must_use]
 pub fn transmute_from_bytes_mut<T: RawSample>(bytes: &mut [u8]) -> &mut [T] {
     // make sure the buffer will have no dangling bytes after the conversion
     assert_eq!(bytes.len() % size_of::<T>(), 0);
     let element_count = bytes.len() / size_of::<T>();
 
     // transmute &mut [u8] -> &mut [T]
-    unsafe { slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut T, element_count) }
+    unsafe { slice::from_raw_parts_mut(bytes.as_mut_ptr().cast::<T>(), element_count) }
 }
 
 /// Provides a mechanism to create sample buffers based on a primitive sample type and a given format description.

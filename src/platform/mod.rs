@@ -132,6 +132,7 @@ macro_rules! impl_platform_host {
         }
 
         impl HostId {
+            #[must_use]
             pub fn name(&self) -> &'static str {
                 match self {
                     $(
@@ -145,6 +146,7 @@ macro_rules! impl_platform_host {
         impl Devices {
             /// Returns a reference to the underlying platform specific implementation of this
             /// `Devices`.
+            #[must_use]
             pub fn as_inner(&self) -> &DevicesInner {
                 &self.0
             }
@@ -156,6 +158,7 @@ macro_rules! impl_platform_host {
             }
 
             /// Returns the underlying platform specific implementation of this `Devices`.
+            #[must_use]
             pub fn into_inner(self) -> DevicesInner {
                 self.0
             }
@@ -182,6 +185,7 @@ macro_rules! impl_platform_host {
 
         impl Host {
             /// The unique identifier associated with this host.
+            #[must_use]
             pub fn id(&self) -> HostId {
                 match self.0 {
                     $(
@@ -193,6 +197,7 @@ macro_rules! impl_platform_host {
 
             /// Returns a reference to the underlying platform specific implementation of this
             /// `Host`.
+            #[must_use]
             pub fn as_inner(&self) -> &HostInner {
                 &self.0
             }
@@ -204,6 +209,7 @@ macro_rules! impl_platform_host {
             }
 
             /// Returns the underlying platform specific implementation of this `Host`.
+            #[must_use]
             pub fn into_inner(self) -> HostInner {
                 self.0
             }
@@ -212,6 +218,7 @@ macro_rules! impl_platform_host {
         impl Stream {
             /// Returns a reference to the underlying platform specific implementation of this
             /// `Stream`.
+            #[must_use]
             pub fn as_inner(&self) -> &StreamInner {
                 &self.0
             }
@@ -223,6 +230,7 @@ macro_rules! impl_platform_host {
             }
 
             /// Returns the underlying platform specific implementation of this `Stream`.
+            #[must_use]
             pub fn into_inner(self) -> StreamInner {
                 self.0
             }
@@ -536,6 +544,7 @@ macro_rules! impl_platform_host {
         )*
 
         /// Produces a list of hosts that are currently available on the system.
+        #[must_use]
         pub fn available_hosts() -> Vec<HostId> {
             let mut host_ids = vec![];
             $(
@@ -586,6 +595,7 @@ mod platform_impl {
     impl_platform_host!(#[cfg(feature = "jack")] Jack jack "JACK", Alsa alsa "ALSA");
 
     /// The default host for the current compilation target platform.
+    #[must_use]
     pub fn default_host() -> Host {
         AlsaHost::new()
             .expect("the default host should always be available")

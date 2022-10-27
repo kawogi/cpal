@@ -311,26 +311,6 @@ impl Device {
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
         use alsa::pcm::Format as Alsa;
         use SampleFormat as Cpal;
-
-        let mut guard = self.handles.lock();
-        let handle_result = guard
-            .get_mut(&self.name, stream_t)
-            .map_err(|e| (e, e.errno()));
-
-        let handle = match handle_result {
-            Err((_, alsa::nix::errno::Errno::ENOENT))
-            | Err((_, alsa::nix::errno::Errno::EBUSY)) => {
-                return Err(SupportedStreamConfigsError::DeviceNotAvailable)
-            }
-            Err((_, alsa::nix::errno::Errno::EINVAL)) => {
-                return Err(SupportedStreamConfigsError::InvalidArgument)
-            }
-            Err((e, _)) => return Err(e.into()),
-            Ok(handle) => handle,
-        };
-
-        let hw_params = alsa::pcm::HwParams::any(handle)?;
-
         const FORMATS: [(Cpal, Alsa); 22] = [
             (Cpal::I8(<i8 as Sample>::Encoding::NE), Alsa::S8),
             (Cpal::U8(<u8 as Sample>::Encoding::NE), Alsa::U8),
@@ -372,8 +352,26 @@ impl Device {
             // (Cpal::U18(<U18 as Sample>::Encoding::BE3B), Alsa::U183BE),
         ];
 
+        let mut guard = self.handles.lock();
+        let handle_result = guard
+            .get_mut(&self.name, stream_t)
+            .map_err(|e| (e, e.errno()));
+
+        let handle = match handle_result {
+            Err((_, alsa::nix::errno::Errno::ENOENT | alsa::nix::errno::Errno::EBUSY)) => {
+                return Err(SupportedStreamConfigsError::DeviceNotAvailable)
+            }
+            Err((_, alsa::nix::errno::Errno::EINVAL)) => {
+                return Err(SupportedStreamConfigsError::InvalidArgument)
+            }
+            Err((e, _)) => return Err(e.into()),
+            Ok(handle) => handle,
+        };
+
+        let hw_params = alsa::pcm::HwParams::any(handle)?;
+
         let mut supported_formats = Vec::new();
-        for &(sample_format, alsa_format) in FORMATS.iter() {
+        for &(sample_format, alsa_format) in &FORMATS {
             if hw_params.test_format(alsa_format).is_ok() {
                 supported_formats.push(sample_format);
             }
@@ -386,12 +384,12 @@ impl Device {
             vec![(min_rate, max_rate)]
         } else {
             const RATES: [libc::c_uint; 13] = [
-                5512, 8000, 11025, 16000, 22050, 32000, 44100, 48000, 64000, 88200, 96000, 176400,
-                192000,
+                5512, 8000, 11_025, 16_000, 22_050, 32_000, 44_100, 48_000, 64_000, 88_200, 96_000,
+                176_400, 192_000,
             ];
 
             let mut rates = Vec::new();
-            for &rate in RATES.iter() {
+            for &rate in &RATES {
                 if hw_params.test_rate(rate).is_ok() {
                     rates.push((rate, rate));
                 }
@@ -408,7 +406,7 @@ impl Device {
         let max_channels = hw_params.get_channels_max()?;
 
         let max_channels = cmp::min(max_channels, 32); // TODO: limiting to 32 channels or too much stuff is returned
-        let supported_channels = (min_channels..max_channels + 1)
+        let supported_channels = (min_channels..=max_channels)
             .filter_map(|num| {
                 if hw_params.test_channels(num).is_ok() {
                     Some(num as ChannelCount)
@@ -429,9 +427,9 @@ impl Device {
         let mut output = Vec::with_capacity(
             supported_formats.len() * supported_channels.len() * sample_rates.len(),
         );
-        for &sample_format in supported_formats.iter() {
-            for &channels in supported_channels.iter() {
-                for &(min_rate, max_rate) in sample_rates.iter() {
+        for &sample_format in &supported_formats {
+            for &channels in &supported_channels {
+                for &(min_rate, max_rate) in &sample_rates {
                     output.push(SupportedStreamConfigRange {
                         channels,
                         min_sample_rate: SampleRate(min_rate as u32),
@@ -481,14 +479,14 @@ impl Device {
             }
         };
 
-        formats.sort_by(|a, b| a.cmp_default_heuristics(b));
+        formats.sort_by(SupportedStreamConfigRange::cmp_default_heuristics);
 
         match formats.into_iter().last() {
             Some(f) => {
+                const HZ_44100: SampleRate = SampleRate(44_100);
                 let min_r = f.min_sample_rate;
                 let max_r = f.max_sample_rate;
                 let mut format = f.with_max_sample_rate();
-                const HZ_44100: SampleRate = SampleRate(44_100);
                 if min_r <= HZ_44100 && HZ_44100 <= max_r {
                     format.sample_rate = HZ_44100;
                 }

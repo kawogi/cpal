@@ -327,6 +327,7 @@ pub struct OutputCallbackInfo {
 }
 
 impl SupportedStreamConfig {
+    #[must_use]
     pub fn new(
         channels: ChannelCount,
         sample_rate: SampleRate,
@@ -341,22 +342,27 @@ impl SupportedStreamConfig {
         }
     }
 
+    #[must_use]
     pub fn channels(&self) -> ChannelCount {
         self.channels
     }
 
+    #[must_use]
     pub fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
 
+    #[must_use]
     pub fn buffer_size(&self) -> &SupportedBufferSize {
         &self.buffer_size
     }
 
+    #[must_use]
     pub fn sample_format(&self) -> SampleFormat {
         self.sample_format
     }
 
+    #[must_use]
     pub fn config(&self) -> StreamConfig {
         StreamConfig {
             channels: self.channels,
@@ -371,6 +377,7 @@ impl StreamInstant {
     /// The amount of time elapsed from another instant to this one.
     ///
     /// Returns `None` if `earlier` is later than self.
+    #[must_use]
     pub fn duration_since(&self, earlier: &Self) -> Option<Duration> {
         if self < earlier {
             None
@@ -440,6 +447,7 @@ impl StreamInstant {
 
 impl InputCallbackInfo {
     /// The timestamp associated with the call to an input stream's data callback.
+    #[must_use]
     pub fn timestamp(&self) -> InputStreamTimestamp {
         self.timestamp
     }
@@ -447,12 +455,14 @@ impl InputCallbackInfo {
 
 impl OutputCallbackInfo {
     /// The timestamp associated with the call to an output stream's data callback.
+    #[must_use]
     pub fn timestamp(&self) -> OutputStreamTimestamp {
         self.timestamp
     }
 }
 
 impl SupportedStreamConfigRange {
+    #[must_use]
     pub fn new(
         channels: ChannelCount,
         min_sample_rate: SampleRate,
@@ -469,22 +479,27 @@ impl SupportedStreamConfigRange {
         }
     }
 
+    #[must_use]
     pub fn channels(&self) -> ChannelCount {
         self.channels
     }
 
+    #[must_use]
     pub fn min_sample_rate(&self) -> SampleRate {
         self.min_sample_rate
     }
 
+    #[must_use]
     pub fn max_sample_rate(&self) -> SampleRate {
         self.max_sample_rate
     }
 
+    #[must_use]
     pub fn buffer_size(&self) -> &SupportedBufferSize {
         &self.buffer_size
     }
 
+    #[must_use]
     pub fn sample_format(&self) -> SampleFormat {
         self.sample_format
     }
@@ -493,6 +508,7 @@ impl SupportedStreamConfigRange {
     ///
     /// **panic!**s if the given `sample_rate` is outside the range specified within this
     /// `SupportedStreamConfigRange` instance.
+    #[must_use]
     pub fn with_sample_rate(self, sample_rate: SampleRate) -> SupportedStreamConfig {
         assert!(self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate);
         SupportedStreamConfig {
@@ -505,6 +521,7 @@ impl SupportedStreamConfigRange {
 
     /// Turns this `SupportedStreamConfigRange` into a `SupportedStreamConfig` corresponding to the maximum samples rate.
     #[inline]
+    #[must_use]
     pub fn with_max_sample_rate(self) -> SupportedStreamConfig {
         SupportedStreamConfig {
             channels: self.channels,
@@ -538,6 +555,7 @@ impl SupportedStreamConfigRange {
     ///
     /// - 44100 (cd quality)
     /// - Max sample rate
+    #[must_use]
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering::Equal;
 
