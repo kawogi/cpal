@@ -6,9 +6,12 @@ extern crate anyhow;
 extern crate clap;
 extern crate cpal;
 
+use std::iter;
+
 use cpal::{
+    buffers::SampleBufferMut,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    FromSample, Sample,
+    FromSample, Sample, I24, U24,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -46,20 +49,20 @@ where
     let (_host, device, config) = host_device_setup()?;
 
     match config.sample_format() {
-        cpal::SampleFormat::I8 => stream_make::<i8, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::I16 => stream_make::<i16, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::I24 => stream_make::<I24, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::I32 => stream_make::<i32, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::I48 => stream_make::<I48, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::I64 => stream_make::<i64, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::U8 => stream_make::<u8, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::U16 => stream_make::<u16, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::U24 => stream_make::<U24, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::U32 => stream_make::<u32, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::U48 => stream_make::<U48, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::U64 => stream_make::<u64, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::F32 => stream_make::<f32, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::F64 => stream_make::<f64, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I8(_) => stream_make::<i8, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I16(_) => stream_make::<i16, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I24(_) => stream_make::<I24, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I32(_) => stream_make::<i32, _>(&device, &config.into(), on_sample),
+        // cpal::SampleFormat::I48(_) => stream_make::<I48, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I64(_) => stream_make::<i64, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U8(_) => stream_make::<u8, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U16(_) => stream_make::<u16, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U24(_) => stream_make::<U24, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U32(_) => stream_make::<u32, _>(&device, &config.into(), on_sample),
+        // cpal::SampleFormat::U48(_) => stream_make::<U48, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U64(_) => stream_make::<u64, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::F32(_) => stream_make::<f32, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::F64(_) => stream_make::<f64, _>(&device, &config.into(), on_sample),
         sample_format => Err(anyhow::Error::msg(format!(
             "Unsupported sample format '{sample_format}'"
         ))),
@@ -100,10 +103,10 @@ where
     };
     let err_fn = |err| eprintln!("Error building output sound stream: {}", err);
 
-    let stream = device.build_output_stream(
+    let stream = device.build_output_stream::<T, _, _>(
         config,
-        move |output: &mut [T], _: &cpal::OutputCallbackInfo| {
-            on_window(output, &mut request, on_sample)
+        move |output: T::BufferMut<'_>, _: &cpal::OutputCallbackInfo| {
+            on_window::<T, _>(output, &mut request, on_sample)
         },
         err_fn,
         None,
@@ -112,15 +115,14 @@ where
     Ok(stream)
 }
 
-fn on_window<T, F>(output: &mut [T], request: &mut SampleRequestOptions, mut on_sample: F)
-where
+fn on_window<T, F>(
+    mut output: T::BufferMut<'_>,
+    request: &mut SampleRequestOptions,
+    mut on_sample: F,
+) where
     T: Sample + FromSample<f32>,
     F: FnMut(&mut SampleRequestOptions) -> f32 + std::marker::Send + 'static,
 {
-    for frame in output.chunks_mut(request.nchannels) {
-        let value: T = T::from_sample(on_sample(request));
-        for sample in frame.iter_mut() {
-            *sample = value;
-        }
-    }
+    let next_frame = || iter::repeat(T::from_sample(on_sample(request)));
+    output.write_frames(iter::repeat_with(next_frame));
 }
