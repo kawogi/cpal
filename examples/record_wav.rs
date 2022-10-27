@@ -8,6 +8,8 @@ extern crate cpal;
 extern crate hound;
 
 use clap::arg;
+use cpal::buffers::SampleBuffer;
+use cpal::samples::Encoding;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample};
 use std::fs::File;
@@ -143,27 +145,27 @@ fn main() -> Result<(), anyhow::Error> {
     };
 
     let stream = match config.sample_format() {
-        cpal::SampleFormat::I8 => device.build_input_stream(
+        cpal::SampleFormat::I8(_) => device.build_input_stream::<i8, _, _>(
             &config.into(),
-            move |data, _: &_| write_input_data::<i8, i8>(data, &writer_2),
+            move |data, _: &_| write_input_data::<i8>(data, &writer_2),
             err_fn,
             None,
         )?,
-        cpal::SampleFormat::I16 => device.build_input_stream(
+        cpal::SampleFormat::I16(_) => device.build_input_stream::<i16, _, _>(
             &config.into(),
-            move |data, _: &_| write_input_data::<i16, i16>(data, &writer_2),
+            move |data, _: &_| write_input_data::<i16>(data, &writer_2),
             err_fn,
             None,
         )?,
-        cpal::SampleFormat::I32 => device.build_input_stream(
+        cpal::SampleFormat::I32(_) => device.build_input_stream::<i32, _, _>(
             &config.into(),
-            move |data, _: &_| write_input_data::<i32, i32>(data, &writer_2),
+            move |data, _: &_| write_input_data::<i32>(data, &writer_2),
             err_fn,
             None,
         )?,
-        cpal::SampleFormat::F32 => device.build_input_stream(
+        cpal::SampleFormat::F32(_) => device.build_input_stream::<f32, _, _>(
             &config.into(),
-            move |data, _: &_| write_input_data::<f32, f32>(data, &writer_2),
+            move |data, _: &_| write_input_data::<f32>(data, &writer_2),
             err_fn,
             None,
         )?,
@@ -203,15 +205,13 @@ fn wav_spec_from_config(config: &cpal::SupportedStreamConfig) -> hound::WavSpec 
 
 type WavWriterHandle = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
 
-fn write_input_data<T, U>(input: &[T], writer: &WavWriterHandle)
+fn write_input_data<T>(input: T::Buffer<'_>, writer: &WavWriterHandle)
 where
-    T: Sample,
-    U: Sample + hound::Sample + FromSample<T>,
+    T: Sample + hound::Sample + FromSample<T>,
 {
     if let Ok(mut guard) = writer.try_lock() {
         if let Some(writer) = guard.as_mut() {
-            for &sample in input.iter() {
-                let sample: U = U::from_sample(sample);
+            for sample in input.samples_interleaved() {
                 writer.write_sample(sample).ok();
             }
         }
