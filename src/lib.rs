@@ -273,6 +273,7 @@ pub struct SupportedStreamConfig {
 /// Raw input stream callbacks receive `&Data`, while raw output stream callbacks expect `&mut
 /// Data`.
 #[derive(Debug)]
+#[deprecated]
 pub struct Data {
     data: *mut (),
     len: usize,

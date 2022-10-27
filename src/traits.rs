@@ -144,7 +144,8 @@ pub trait DeviceTrait {
     }
 
     /// Create an output stream.
-    fn build_output_stream_new<T, D, E>(
+    // TODO check whether this indirection to `_raw` is still necessary
+    fn build_output_stream<T, D, E>(
         &self,
         config: &StreamConfig,
         data_callback: D,
@@ -156,34 +157,7 @@ pub trait DeviceTrait {
         D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        self.build_output_stream_raw_new(config, data_callback, error_callback, timeout)
-    }
-
-    /// Create an output stream.
-    fn build_output_stream<T, D, E>(
-        &self,
-        config: &StreamConfig,
-        mut data_callback: D,
-        error_callback: E,
-        timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
-    where
-        T: Sample,
-        D: FnMut(&mut [T], &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
-    {
-        self.build_output_stream_raw(
-            config,
-            move |data, info| {
-                data_callback(
-                    data.as_slice_mut()
-                        .expect("host supplied incorrect sample type"),
-                    info,
-                )
-            },
-            error_callback,
-            timeout,
-        )
+        self.build_output_stream_raw(config, data_callback, error_callback, timeout)
     }
 
     /// Create a dynamically typed input stream.
@@ -199,19 +173,7 @@ pub trait DeviceTrait {
         E: FnMut(StreamError) + Send + 'static;
 
     /// Create a dynamically typed output stream.
-    fn build_output_stream_raw<D, E>(
-        &self,
-        config: &StreamConfig,
-        data_callback: D,
-        error_callback: E,
-        timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
-    where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static;
-
-    /// Create a dynamically typed output stream.
-    fn build_output_stream_raw_new<T, D, E>(
+    fn build_output_stream_raw<T, D, E>(
         &self,
         config: &StreamConfig,
         data_callback: D,

@@ -82,7 +82,7 @@ impl DeviceTrait for Device {
         unimplemented!()
     }
 
-    fn build_output_stream_raw_new<T, D, E>(
+    fn build_output_stream_raw<T, D, E>(
         &self,
         _config: &StreamConfig,
         _data_callback: D,
@@ -92,21 +92,6 @@ impl DeviceTrait for Device {
     where
         T: Sample,
         D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
-    {
-        unimplemented!()
-    }
-
-    /// Create an output stream.
-    fn build_output_stream_raw<D, E>(
-        &self,
-        _config: &StreamConfig,
-        _data_callback: D,
-        _error_callback: E,
-        _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
-    where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         unimplemented!()

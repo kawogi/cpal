@@ -381,34 +381,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn build_output_stream_raw<D, E>(
-                &self,
-                config: &crate::StreamConfig,
-                data_callback: D,
-                error_callback: E,
-                timeout: Option<std::time::Duration>,
-            ) -> Result<Self::Stream, crate::BuildStreamError>
-            where
-                D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
-                E: FnMut(crate::StreamError) + Send + 'static,
-            {
-                match self.0 {
-                    $(
-                        $(#[cfg($feat)])?
-                        DeviceInner::$HostVariant(ref d) => d
-                            .build_output_stream_raw(
-                                config,
-                                data_callback,
-                                error_callback,
-                                timeout,
-                            )
-                            .map(StreamInner::$HostVariant)
-                            .map(Stream::from),
-                    )*
-                }
-            }
-
-            fn build_output_stream_raw_new<T, D, E>(
+            fn build_output_stream_raw<T, D, E>(
                 &self,
                 config: &crate::StreamConfig,
                 data_callback: D,
@@ -424,7 +397,7 @@ macro_rules! impl_platform_host {
                     $(
                         $(#[cfg($feat)])?
                         DeviceInner::$HostVariant(ref d) => d
-                            .build_output_stream_raw_new(
+                            .build_output_stream_raw(
                                 config,
                                 data_callback,
                                 error_callback,

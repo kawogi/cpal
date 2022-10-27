@@ -111,7 +111,7 @@ impl DeviceTrait for Device {
         Ok(stream)
     }
 
-    fn build_output_stream_raw_new<T, D, E>(
+    fn build_output_stream_raw<T, D, E>(
         &self,
         config: &StreamConfig,
         data_callback: D,
@@ -121,27 +121,6 @@ impl DeviceTrait for Device {
     where
         T: Sample,
         D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
-    {
-        let stream_inner = self.build_stream_inner(config, alsa::Direction::Playback)?;
-        let stream = Stream::new_output_new(
-            Arc::new(stream_inner),
-            data_callback,
-            error_callback,
-            timeout,
-        );
-        Ok(stream)
-    }
-
-    fn build_output_stream_raw<D, E>(
-        &self,
-        config: &StreamConfig,
-        data_callback: D,
-        error_callback: E,
-        timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
-    where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner = self.build_stream_inner(config, alsa::Direction::Playback)?;
@@ -319,65 +298,6 @@ impl Device {
 
         Ok(stream_inner)
     }
-
-    // fn build_stream_inner_new(
-    //     &self,
-    //     conf: &StreamConfig,
-    //     sample_format: RawSampleFormat,
-    //     stream_type: alsa::Direction,
-    // ) -> Result<StreamInner, BuildStreamError> {
-    //     let handle_result = self
-    //         .handles
-    //         .lock()
-    //         .take(&self.name, stream_type)
-    //         .map_err(|e| (e, e.errno()));
-
-    //     let handle = match handle_result {
-    //         Err((_, alsa::nix::errno::Errno::EBUSY)) => {
-    //             return Err(BuildStreamError::DeviceNotAvailable)
-    //         }
-    //         Err((_, alsa::nix::errno::Errno::EINVAL)) => {
-    //             return Err(BuildStreamError::InvalidArgument)
-    //         }
-    //         Err((e, _)) => return Err(e.into()),
-    //         Ok(handle) => handle,
-    //     };
-    //     let can_pause = set_hw_params_from_format(&handle, conf, sample_format)?;
-    //     let period_len = set_sw_params_from_format(&handle, conf, stream_type)?;
-
-    //     handle.prepare()?;
-
-    //     let num_descriptors = handle.count();
-    //     if num_descriptors == 0 {
-    //         let description = "poll descriptor count for stream was 0".to_string();
-    //         let err = BackendSpecificError { description };
-    //         return Err(err.into());
-    //     }
-
-    //     // Check to see if we can retrieve valid timestamps from the device.
-    //     // Related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
-    //     let ts = handle.status()?.get_htstamp();
-    //     let creation_instant = match (ts.tv_sec, ts.tv_nsec) {
-    //         (0, 0) => Some(std::time::Instant::now()),
-    //         _ => None,
-    //     };
-
-    //     if let alsa::Direction::Capture = stream_type {
-    //         handle.start()?;
-    //     }
-
-    //     let stream_inner = StreamInner {
-    //         channel: handle,
-    //         sample_format,
-    //         num_descriptors,
-    //         conf: conf.clone(),
-    //         period_len,
-    //         can_pause,
-    //         creation_instant,
-    //     };
-
-    //     Ok(stream_inner)
-    // }
 
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
@@ -710,58 +630,7 @@ fn input_stream_worker(
     }
 }
 
-fn output_stream_worker(
-    rx: TriggerReceiver,
-    stream: &StreamInner,
-    data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
-    error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
-    timeout: Option<Duration>,
-) {
-    let mut ctxt = StreamWorkerContext::new(&timeout);
-    loop {
-        let flow =
-            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
-                error_callback(err.into());
-                PollDescriptorsFlow::Continue
-            });
-
-        match flow {
-            PollDescriptorsFlow::Continue => continue,
-            PollDescriptorsFlow::XRun => {
-                if let Err(err) = stream.channel.prepare() {
-                    error_callback(err.into());
-                }
-                continue;
-            }
-            PollDescriptorsFlow::Return => return,
-            PollDescriptorsFlow::Ready {
-                status,
-                avail_frames,
-                delay_frames,
-                stream_type,
-            } => {
-                assert_eq!(
-                    stream_type,
-                    StreamType::Output,
-                    "expected output stream, but polling descriptors indicated input",
-                );
-                if let Err(err) = process_output(
-                    stream,
-                    &mut ctxt.buffer,
-                    status,
-                    avail_frames,
-                    delay_frames,
-                    data_callback,
-                    error_callback,
-                ) {
-                    error_callback(err.into());
-                }
-            }
-        }
-    }
-}
-
-fn output_stream_worker_new<T, D, E>(
+fn output_stream_worker<T, D, E>(
     rx: TriggerReceiver,
     stream: &StreamInner,
     data_callback: &mut D,
@@ -800,7 +669,7 @@ fn output_stream_worker_new<T, D, E>(
                     StreamType::Output,
                     "expected output stream, but polling descriptors indicated input",
                 );
-                if let Err(err) = process_output_new(
+                if let Err(err) = process_output(
                     stream,
                     &mut ctxt.buffer,
                     status,
@@ -951,59 +820,7 @@ fn process_input(
 // Request data from the user's function and write it via ALSA.
 //
 // Returns `true`
-fn process_output(
-    stream: &StreamInner,
-    buffer: &mut [u8],
-    status: alsa::pcm::Status,
-    available_frames: usize,
-    delay_frames: usize,
-    data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
-    error_callback: &mut dyn FnMut(StreamError),
-) -> Result<(), BackendSpecificError> {
-    {
-        // We're now sure that we're ready to write data.
-        let sample_format = stream.config.sample_format;
-        let data = buffer.as_mut_ptr() as *mut ();
-        let len = buffer.len() / sample_format.sample_size();
-        let mut data = unsafe { Data::from_parts(data, len, sample_format) };
-        let callback = stream_timestamp(&status, stream.creation_instant)?;
-        let delay_duration = frames_to_duration(delay_frames, stream.config.sample_rate);
-        let playback = callback
-            .add(delay_duration)
-            .expect("`playback` occurs beyond representation supported by `StreamInstant`");
-        let timestamp = crate::OutputStreamTimestamp { callback, playback };
-        let info = crate::OutputCallbackInfo { timestamp };
-        data_callback(&mut data, &info);
-    }
-    loop {
-        match stream.channel.io_bytes().writei(buffer) {
-            Err(err) if err.errno() == alsa::nix::errno::Errno::EPIPE => {
-                // buffer underrun
-                // TODO: Notify the user of this.
-                let _ = stream.channel.try_recover(err, false);
-            }
-            Err(err) => {
-                error_callback(err.into());
-                continue;
-            }
-            Ok(result) if result != available_frames => {
-                let description = format!(
-                    "unexpected number of frames written: expected {}, \
-                     result {} (this should never happen)",
-                    available_frames, result,
-                );
-                error_callback(BackendSpecificError { description }.into());
-                continue;
-            }
-            _ => {
-                break;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn process_output_new<T, D, E>(
+fn process_output<T, D, E>(
     stream: &StreamInner,
     buffer: &mut [u8],
     status: alsa::pcm::Status,
@@ -1267,39 +1084,7 @@ impl Stream {
         }
     }
 
-    fn new_output<D, E>(
-        inner: Arc<StreamInner>,
-        mut data_callback: D,
-        mut error_callback: E,
-        timeout: Option<Duration>,
-    ) -> Stream
-    where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
-    {
-        let (tx, rx) = trigger();
-        // Clone the handle for passing into worker thread.
-        let stream = inner.clone();
-        let thread = thread::Builder::new()
-            .name("cpal_alsa_out".to_owned())
-            .spawn(move || {
-                output_stream_worker(
-                    rx,
-                    &stream,
-                    &mut data_callback,
-                    &mut error_callback,
-                    timeout,
-                );
-            })
-            .unwrap();
-        Stream {
-            thread: Some(thread),
-            inner,
-            trigger: tx,
-        }
-    }
-
-    fn new_output_new<T, D, E>(
+    fn new_output<T, D, E>(
         inner: Arc<StreamInner>,
         mut data_callback: D,
         mut error_callback: E,
@@ -1316,7 +1101,7 @@ impl Stream {
         let thread = thread::Builder::new()
             .name("cpal_alsa_out".to_owned())
             .spawn(move || {
-                output_stream_worker_new(
+                output_stream_worker(
                     rx,
                     &stream,
                     &mut data_callback,

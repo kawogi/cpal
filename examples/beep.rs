@@ -72,11 +72,6 @@ impl Opt {
 }
 
 fn main() -> anyhow::Result<()> {
-    main_new()
-    //main_old()
-}
-
-fn main_new() -> anyhow::Result<()> {
     let device = get_default_output_device()?;
     println!("Output device: {}", device.name()?);
 
@@ -177,8 +172,7 @@ where
     //     }));
     // };
 
-    let stream =
-        device.build_output_stream_new(&config, audio_source.into_callback(), err_fn, None)?;
+    let stream = device.build_output_stream(&config, audio_source.into_callback(), err_fn, None)?;
     stream.play()?;
 
     std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -233,64 +227,4 @@ fn get_default_host() -> Host {
         not(feature = "jack")
     ))]
     cpal::default_host()
-}
-
-fn main_old() -> anyhow::Result<()> {
-    let device = get_default_output_device()?;
-    println!("Output device: {}", device.name()?);
-
-    let config = device.default_output_config().unwrap();
-    println!("Default output config: {:?}", config);
-
-    let sample_format = config.sample_format();
-    println!("Format: {sample_format}");
-
-    match sample_format {
-        SampleFormat::I8(_) => run0::<i8>(&device, config),
-        SampleFormat::I16(_) => run0::<i16>(&device, config),
-        // RawSampleFormat::I24(_) => run_old::<I24>(&device, config),
-        SampleFormat::I32(_) => run0::<i32>(&device, config),
-        // RawSampleFormat::I48(_) => run_old::<I48>(&device, config),
-        SampleFormat::I64(_) => run0::<i64>(&device, config),
-        SampleFormat::U8(_) => run0::<u8>(&device, config),
-        SampleFormat::U16(_) => run0::<u16>(&device, config),
-        // RawSampleFormat::U24(_) => run_old::<U24>(&device, config),
-        SampleFormat::U32(_) => run0::<u32>(&device, config),
-        // RawSampleFormat::U48(_) => run_old::<U48>(&device, config),
-        SampleFormat::U64(_) => run0::<u64>(&device, config),
-        SampleFormat::F32(_) => run0::<f32>(&device, config),
-        SampleFormat::F64(_) => run0::<f64>(&device, config),
-        sample_format => panic!("Unsupported sample format '{sample_format}'"),
-    }
-}
-
-fn run0<T>(device: &cpal::Device, config: SupportedStreamConfig) -> Result<(), anyhow::Error>
-where
-    T: Sample + FromSample<f32>,
-{
-    let config = StreamConfig::from(config);
-    let mut audio_source = Sinus::<T>::new(config.sample_rate);
-    let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
-
-    let channels = config.channels as usize;
-    let callback = move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-        println!(
-            "fill_buffer: frames {}, channels {channels}",
-            data.len() / channels
-        );
-
-        for frame in data.chunks_mut(channels) {
-            let value: T = audio_source.next();
-            for sample in frame.iter_mut() {
-                *sample = value;
-            }
-        }
-    };
-
-    let stream = device.build_output_stream(&config, callback, err_fn, None)?;
-    stream.play()?;
-
-    std::thread::sleep(std::time::Duration::from_millis(1000));
-
-    Ok(())
 }
