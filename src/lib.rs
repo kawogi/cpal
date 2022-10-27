@@ -268,18 +268,6 @@ pub struct SupportedStreamConfig {
     sample_format: SampleFormat,
 }
 
-/// A buffer of dynamically typed audio data, passed to raw stream callbacks.
-///
-/// Raw input stream callbacks receive `&Data`, while raw output stream callbacks expect `&mut
-/// Data`.
-#[derive(Debug)]
-#[deprecated]
-pub struct Data {
-    data: *mut (),
-    len: usize,
-    sample_format: SampleFormat,
-}
-
 /// A monotonic time instance associated with a stream, retrieved from either:
 ///
 /// 1. A timestamp provided to the stream's underlying audio data callback or
@@ -461,100 +449,6 @@ impl OutputCallbackInfo {
     /// The timestamp associated with the call to an output stream's data callback.
     pub fn timestamp(&self) -> OutputStreamTimestamp {
         self.timestamp
-    }
-}
-
-#[allow(clippy::len_without_is_empty)]
-impl Data {
-    // Internal constructor for host implementations to use.
-    //
-    // The following requirements must be met in order for the safety of `Data`'s public API.
-    //
-    // - The `data` pointer must point to the first sample in the slice containing all samples.
-    // - The `len` must describe the length of the buffer as a number of samples in the expected
-    //   format specified via the `sample_format` argument.
-    // - The `sample_format` must correctly represent the underlying sample data delivered/expected
-    //   by the stream.
-    pub(crate) unsafe fn from_parts(
-        data: *mut (),
-        len: usize,
-        sample_format: SampleFormat,
-    ) -> Self {
-        Data {
-            data,
-            len,
-            sample_format,
-        }
-    }
-
-    /// The sample format of the internal audio data.
-    pub fn sample_format(&self) -> SampleFormat {
-        self.sample_format
-    }
-
-    /// The full length of the buffer in samples.
-    ///
-    /// The returned length is the same length as the slice of type `T` that would be returned via
-    /// `as_slice` given a sample type that matches the inner sample format.
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// The raw slice of memory representing the underlying audio data as a slice of bytes.
-    ///
-    /// It is up to the user to interpret the slice of memory based on `Data::sample_format`.
-    pub fn bytes(&self) -> &[u8] {
-        let len = self.len * self.sample_format.sample_size();
-        // The safety of this block relies on correct construction of the `Data` instance. See
-        // the unsafe `from_parts` constructor for these requirements.
-        unsafe { std::slice::from_raw_parts(self.data as *const u8, len) }
-    }
-
-    /// The raw slice of memory representing the underlying audio data as a slice of bytes.
-    ///
-    /// It is up to the user to interpret the slice of memory based on `Data::sample_format`.
-    pub fn bytes_mut(&mut self) -> &mut [u8] {
-        let len = self.len * self.sample_format.sample_size();
-        // The safety of this block relies on correct construction of the `Data` instance. See
-        // the unsafe `from_parts` constructor for these requirements.
-        unsafe { std::slice::from_raw_parts_mut(self.data as *mut u8, len) }
-    }
-
-    /// Access the data as a slice of sample type `T`.
-    ///
-    /// Returns `None` if the sample type does not match the expected sample format.
-    pub fn as_slice<T>(&self) -> Option<&[T]>
-    where
-        T: Sample,
-    {
-        if T::supports_format(self.sample_format) {
-            // The safety of this block relies on correct construction of the `Data` instance. See
-            // the unsafe `from_parts` constructor for these requirements.
-            unsafe { Some(std::slice::from_raw_parts(self.data as *const T, self.len)) }
-        } else {
-            None
-        }
-    }
-
-    /// Access the data as a slice of sample type `T`.
-    ///
-    /// Returns `None` if the sample type does not match the expected sample format.
-    pub fn as_slice_mut<T>(&mut self) -> Option<&mut [T]>
-    where
-        T: Sample,
-    {
-        if T::supports_format(self.sample_format) {
-            // The safety of this block relies on correct construction of the `Data` instance. See
-            // the unsafe `from_parts` constructor for these requirements.
-            unsafe {
-                Some(std::slice::from_raw_parts_mut(
-                    self.data as *mut T,
-                    self.len,
-                ))
-            }
-        } else {
-            None
-        }
     }
 }
 

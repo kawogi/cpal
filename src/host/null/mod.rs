@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BufferFactory, BuildStreamError, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, StreamConfig,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, StreamConfig,
     StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
