@@ -6,11 +6,10 @@ use dasp_sample::{I24, U24};
 
 use self::alsa::poll::Descriptors;
 use self::parking_lot::Mutex;
-use crate::buffers::AudioSource;
 use crate::samples::{Encoding, SampleFormat};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferFactory, BufferSize, BuildStreamError, ChannelCount, Data,
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
     OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleRate, StreamConfig,
     StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
@@ -112,21 +111,22 @@ impl DeviceTrait for Device {
         Ok(stream)
     }
 
-    fn build_output_stream_raw_new<A, E>(
+    fn build_output_stream_raw_new<T, D, E>(
         &self,
         config: &StreamConfig,
-        audio_source: A,
+        data_callback: D,
         error_callback: E,
         timeout: Option<std::time::Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        A: AudioSource,
+        T: Sample,
+        D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner = self.build_stream_inner(config, alsa::Direction::Playback)?;
         let stream = Stream::new_output_new(
             Arc::new(stream_inner),
-            audio_source,
+            data_callback,
             error_callback,
             timeout,
         );
@@ -761,14 +761,16 @@ fn output_stream_worker(
     }
 }
 
-fn output_stream_worker_new<A>(
+fn output_stream_worker_new<T, D, E>(
     rx: TriggerReceiver,
     stream: &StreamInner,
-    data_callback: &mut A,
-    error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
+    data_callback: &mut D,
+    error_callback: &mut E,
     timeout: Option<Duration>,
 ) where
-    A: AudioSource,
+    T: Sample,
+    D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
+    E: FnMut(StreamError) + Send + 'static,
 {
     let mut ctxt = StreamWorkerContext::new(&timeout);
     loop {
@@ -1001,17 +1003,19 @@ fn process_output(
     Ok(())
 }
 
-fn process_output_new<A>(
+fn process_output_new<T, D, E>(
     stream: &StreamInner,
     buffer: &mut [u8],
     status: alsa::pcm::Status,
     available_frames: usize,
     delay_frames: usize,
-    data_callback: &mut A,
-    error_callback: &mut dyn FnMut(StreamError),
+    data_callback: &mut D,
+    error_callback: &mut E,
 ) -> Result<(), BackendSpecificError>
 where
-    A: AudioSource,
+    T: Sample,
+    D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
+    E: FnMut(StreamError) + Send + 'static,
 {
     {
         // We're now sure that we're ready to write data.
@@ -1030,124 +1034,124 @@ where
 
         match sample_format {
             SampleFormat::I8(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
             SampleFormat::I16(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
             SampleFormat::I24(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
             SampleFormat::I32(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
             SampleFormat::I64(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
             SampleFormat::U8(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
             SampleFormat::U16(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
             SampleFormat::U24(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
             SampleFormat::U32(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
             SampleFormat::U64(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
             SampleFormat::F32(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
             SampleFormat::F64(_) => {
-                let buffer = A::Item::create_interleaved_buffer_mut(
+                let buffer = T::create_interleaved_buffer_mut(
                     buffer,
                     sample_format,
                     channel_count,
                     frame_count,
                 )
                 .unwrap_or_else(|| panic!("buffer size mismatch"));
-                data_callback.fill_buffer(buffer, &info);
+                data_callback(buffer, &info);
             }
         }
     }
@@ -1295,14 +1299,15 @@ impl Stream {
         }
     }
 
-    fn new_output_new<A, E>(
+    fn new_output_new<T, D, E>(
         inner: Arc<StreamInner>,
-        mut data_callback: A,
+        mut data_callback: D,
         mut error_callback: E,
         timeout: Option<Duration>,
     ) -> Stream
     where
-        A: AudioSource,
+        T: Sample,
+        D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let (tx, rx) = trigger();

@@ -408,16 +408,17 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn build_output_stream_raw_new<A, E>(
+            fn build_output_stream_raw_new<T, D, E>(
                 &self,
                 config: &crate::StreamConfig,
-                audio_source: A,
+                data_callback: D,
                 error_callback: E,
                 timeout: Option<std::time::Duration>,
             ) -> Result<Self::Stream, crate::BuildStreamError>
             where
-                A: crate::buffers::AudioSource,
-                E: FnMut(crate::StreamError) + Send + 'static
+                T: crate::Sample,
+                D: FnMut(T::BufferMut<'_>, &crate::OutputCallbackInfo) + Send + 'static,
+                E: FnMut(crate::StreamError) + Send + 'static,
             {
                 match self.0 {
                     $(
@@ -425,7 +426,7 @@ macro_rules! impl_platform_host {
                         DeviceInner::$HostVariant(ref d) => d
                             .build_output_stream_raw_new(
                                 config,
-                                audio_source,
+                                data_callback,
                                 error_callback,
                                 timeout,
                             )

@@ -176,7 +176,7 @@ where
     Self::Primitive: From<Self>,
 {
     /// The _public facing_ type to use when converting from/to the raw byte representation. (e.g. `i16`, `I24`, `f32`)
-    type Primitive: Copy;
+    type Primitive: Sample;
 }
 
 /// Provides some meta-data about the in-memory representation of a sample.

@@ -1,8 +1,6 @@
 use std::{mem::size_of, ops::Index, slice};
 
-use crate::{
-    samples::RawSample, ChannelCount, FrameCount, OutputCallbackInfo, Sample, SampleFormat,
-};
+use crate::{samples::RawSample, ChannelCount, FrameCount, Sample, SampleFormat};
 
 pub mod interleaved;
 pub mod separated;
@@ -17,16 +15,8 @@ pub struct SampleAddress {
     pub frame: FrameIndex,
 }
 
-pub trait AudioSource: 'static + Send {
-    type Item: Sample;
-
-    fn fill_buffer<B>(&mut self, buffer: B, info: &OutputCallbackInfo)
-    where
-        B: SampleBufferMut<Item = Self::Item>;
-}
-
 pub trait SampleBuffer {
-    type Item: Copy;
+    type Item: Sample;
     type Frame: IntoIterator<Item = Self::Item>;
     type Frames: Iterator<Item = Self::Frame>;
     type Channel: IntoIterator<Item = Self::Item>;
@@ -70,7 +60,7 @@ pub trait SampleBuffer {
 }
 
 pub trait SampleBufferMut {
-    type Item: Copy;
+    type Item: Sample;
 
     /// number of frames in this buffer
     fn frame_count(&self) -> FrameIndex;

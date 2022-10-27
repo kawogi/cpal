@@ -1,10 +1,9 @@
 use std::time::Duration;
 
-use crate::buffers::AudioSource;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, StreamConfig,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, StreamConfig,
     StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -83,15 +82,16 @@ impl DeviceTrait for Device {
         unimplemented!()
     }
 
-    fn build_output_stream_raw_new<A, E>(
+    fn build_output_stream_raw_new<T, D, E>(
         &self,
         _config: &StreamConfig,
-        _audio_source: A,
+        _data_callback: D,
         _error_callback: E,
         _timeout: Option<std::time::Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        A: AudioSource,
+        T: Sample,
+        D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         unimplemented!()

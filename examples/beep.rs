@@ -6,10 +6,9 @@ use std::{iter, marker::PhantomData};
 
 use clap::arg;
 use cpal::{
-    buffers::{AudioSource, SampleBufferMut},
+    buffers::SampleBufferMut,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    ChannelCount, Device, Host, OutputCallbackInfo, Sample, SampleRate, StreamConfig,
-    SupportedStreamConfig, I24, U24,
+    ChannelCount, Device, Host, Sample, SampleRate, StreamConfig, SupportedStreamConfig, I24, U24,
 };
 use cpal::{FromSample, SampleFormat};
 
@@ -131,20 +130,27 @@ impl<T: Sample + FromSample<f32>> Sinus<T> {
     fn next_frame(&mut self, channel_count: ChannelCount) -> impl Iterator<Item = T> {
         iter::repeat(self.next()).take(usize::from(channel_count))
     }
-}
 
-impl<T: Sample + FromSample<f32>> AudioSource for Sinus<T> {
-    type Item = T;
-
-    fn fill_buffer<'buffer, B: SampleBufferMut<Item = T>>(
-        &mut self,
-        mut buffer: B,
-        _info: &OutputCallbackInfo,
-    ) {
-        let channel_count = buffer.channel_count();
-        buffer.write_frames(iter::repeat_with(|| self.next_frame(channel_count)));
+    fn into_callback(mut self) -> impl FnMut(T::BufferMut<'_>, &cpal::OutputCallbackInfo) {
+        move |mut buffer, _info| {
+            let channel_count = buffer.channel_count();
+            buffer.write_frames(iter::repeat_with(|| self.next_frame(channel_count)));
+        }
     }
 }
+
+// impl<T: Sample + FromSample<f32>> AudioSource for Sinus<T> {
+//     type Item = T;
+
+//     fn fill_buffer<'buffer, B: SampleBufferMut<Item = T>>(
+//         &mut self,
+//         mut buffer: B,
+//         _info: &OutputCallbackInfo,
+//     ) {
+//         let channel_count = buffer.channel_count();
+//         buffer.write_frames(iter::repeat_with(|| self.next_frame(channel_count)));
+//     }
+// }
 
 fn beep<T>(device: &cpal::Device, config: SupportedStreamConfig) -> Result<(), anyhow::Error>
 where
@@ -154,7 +160,25 @@ where
     let audio_source = Sinus::<T>::new(config.sample_rate);
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
-    let stream = device.build_output_stream_new(&config, audio_source, err_fn, None)?;
+    // //let channels = config.channels as usize;
+    // let callback = move |mut buffer: <T as BufferFactory>::BufferMut<'_>,
+    //                      _info: &cpal::OutputCallbackInfo| {
+    //     println!(
+    //         "fill_buffer: frames {}, channels {}",
+    //         buffer.frame_count(),
+    //         buffer.channel_count()
+    //     );
+    //     let channel_count = buffer.channel_count();
+    //     //let v = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+    //     //buffer.write_frames(iter::repeat_with(|| audio_source.next_frame(channel_count)));
+    //     buffer.write_frames(iter::repeat_with(|| {
+    //         let i = audio_source.v.iter().map(|&s| T::from_sample(s));
+    //         i
+    //     }));
+    // };
+
+    let stream =
+        device.build_output_stream_new(&config, audio_source.into_callback(), err_fn, None)?;
     stream.play()?;
 
     std::thread::sleep(std::time::Duration::from_millis(1000));

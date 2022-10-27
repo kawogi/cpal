@@ -3,9 +3,9 @@
 use std::time::Duration;
 
 use crate::{
-    buffers::AudioSource, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
-    DevicesError, InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices,
-    PauseStreamError, PlayStreamError, Sample, StreamConfig, StreamError, SupportedStreamConfig,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, PauseStreamError,
+    PlayStreamError, Sample, StreamConfig, StreamError, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -144,18 +144,19 @@ pub trait DeviceTrait {
     }
 
     /// Create an output stream.
-    fn build_output_stream_new<A, E>(
+    fn build_output_stream_new<T, D, E>(
         &self,
         config: &StreamConfig,
-        audio_source: A,
+        data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        A: AudioSource,
+        T: Sample,
+        D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        self.build_output_stream_raw_new(config, audio_source, error_callback, timeout)
+        self.build_output_stream_raw_new(config, data_callback, error_callback, timeout)
     }
 
     /// Create an output stream.
@@ -210,15 +211,16 @@ pub trait DeviceTrait {
         E: FnMut(StreamError) + Send + 'static;
 
     /// Create a dynamically typed output stream.
-    fn build_output_stream_raw_new<A, E>(
+    fn build_output_stream_raw_new<T, D, E>(
         &self,
         config: &StreamConfig,
-        audio_source: A,
+        data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        A: AudioSource,
+        T: Sample,
+        D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 }
 
