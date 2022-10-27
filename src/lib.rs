@@ -56,14 +56,14 @@
 //! Now that we have everything for the stream, we are ready to create it from our selected device:
 //!
 //! ```no_run
-//! use cpal::Data;
+//! use cpal::buffers::{BufferFactory, SampleBufferMut};
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let config = device.default_output_config().unwrap().into();
-//! let stream = device.build_output_stream(
+//! let stream = device.build_output_stream::<f32, _, _>(
 //!     &config,
-//!     move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+//!     move |data: <f32 as BufferFactory>::BufferMut<'_>, _: &cpal::OutputCallbackInfo| {
 //!         // react to stream events and read or write stream data here.
 //!     },
 //!     move |err| {
@@ -89,7 +89,8 @@
 //! In this example, we simply fill the given output buffer with silence.
 //!
 //! ```no_run
-//! use cpal::{Data, Sample, SampleFormat, FromSample};
+//! use cpal::buffers::{BufferFactory, SampleBufferMut};
+//! use cpal::{Sample, SampleFormat, FromSample};
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
@@ -98,16 +99,14 @@
 //! let sample_format = supported_config.sample_format();
 //! let config = supported_config.into();
 //! let stream = match sample_format {
-//!     SampleFormat::F32 => device.build_output_stream(&config, write_silence::<f32>, err_fn, None),
-//!     SampleFormat::I16 => device.build_output_stream(&config, write_silence::<i16>, err_fn, None),
-//!     SampleFormat::U16 => device.build_output_stream(&config, write_silence::<u16>, err_fn, None),
+//!     SampleFormat::F32(_) => device.build_output_stream::<f32, _, _>(&config, write_silence::<f32>, err_fn, None),
+//!     SampleFormat::I16(_) => device.build_output_stream::<i16, _, _>(&config, write_silence::<i16>, err_fn, None),
+//!     SampleFormat::U16(_) => device.build_output_stream::<u16, _, _>(&config, write_silence::<u16>, err_fn, None),
 //!     sample_format => panic!("Unsupported sample format '{sample_format}'")
 //! }.unwrap();
 //!
-//! fn write_silence<T: Sample>(data: &mut [T], _: &cpal::OutputCallbackInfo) {
-//!     for sample in data.iter_mut() {
-//!         *sample = Sample::EQUILIBRIUM;
-//!     }
+//! fn write_silence<T: Sample>(mut data: T::BufferMut<'_>, _: &cpal::OutputCallbackInfo) {
+//!     data.write_samples_interleaved(std::iter::repeat(T::EQUILIBRIUM));
 //! }
 //! ```
 //!
@@ -115,15 +114,16 @@
 //! we can use `Stream::play`.
 //!
 //! ```no_run
+//! # use cpal::buffers::{BufferFactory, SampleBufferMut};
 //! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let supported_config = device.default_output_config().unwrap();
 //! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
-//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
+//! # let data_fn = move |_data: <f32 as BufferFactory>::BufferMut<'_>, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn, None).unwrap();
+//! # let stream = device.build_output_stream_raw::<f32, _, _>(&config, data_fn, err_fn, None).unwrap();
 //! stream.play().unwrap();
 //! ```
 //!
@@ -131,15 +131,16 @@
 //! of silence.
 //!
 //! ```no_run
+//! # use cpal::buffers::{BufferFactory, SampleBufferMut};
 //! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let supported_config = device.default_output_config().unwrap();
 //! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
-//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
+//! # let data_fn = move |_data: <f32 as BufferFactory>::BufferMut<'_>, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn, None).unwrap();
+//! # let stream = device.build_output_stream_raw::<f32, _, _>(&config, data_fn, err_fn, None).unwrap();
 //! stream.pause().unwrap();
 //! ```
 
