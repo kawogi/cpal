@@ -1,8 +1,8 @@
 use super::windows_err_to_cpal_err;
 use crate::traits::StreamTrait;
 use crate::{
-    BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, StreamError,
+    BackendSpecificError, BufferFactory, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, StreamError,
 };
 use std::mem;
 use std::ptr;
@@ -74,18 +74,17 @@ pub struct StreamInner {
     pub bytes_per_frame: u16,
     // The configuration with which the stream was created.
     pub config: crate::StreamConfig,
-    // The sample format with which the stream was created.
-    pub sample_format: SampleFormat,
 }
 
 impl Stream {
-    pub(crate) fn new_input<D, E>(
+    pub(crate) fn new_input<T, D, E>(
         stream_inner: StreamInner,
         mut data_callback: D,
         mut error_callback: E,
     ) -> Stream
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        T: BufferFactory,
+        D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event = unsafe {
@@ -117,13 +116,14 @@ impl Stream {
         }
     }
 
-    pub(crate) fn new_output<D, E>(
+    pub(crate) fn new_output<T, D, E>(
         stream_inner: StreamInner,
         mut data_callback: D,
         mut error_callback: E,
     ) -> Stream
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        T: BufferFactory,
+        D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event = unsafe {
@@ -271,11 +271,12 @@ fn get_available_frames(stream: &StreamInner) -> Result<u32, StreamError> {
     }
 }
 
-fn run_input(
-    mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
-    error_callback: &mut dyn FnMut(StreamError),
-) {
+fn run_input<T, D, E>(mut run_ctxt: RunContext, data_callback: &mut D, error_callback: &mut E)
+where
+    T: BufferFactory,
+    D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
+    E: FnMut(StreamError) + Send + 'static,
+{
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
             Some(ControlFlow::Break) => break,
@@ -298,11 +299,12 @@ fn run_input(
     }
 }
 
-fn run_output(
-    mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
-    error_callback: &mut dyn FnMut(StreamError),
-) {
+fn run_output<T, D, E>(mut run_ctxt: RunContext, data_callback: &mut D, error_callback: &mut E)
+where
+    T: BufferFactory,
+    D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
+    E: FnMut(StreamError) + Send + 'static,
+{
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
             Some(ControlFlow::Break) => break,
@@ -330,10 +332,13 @@ enum ControlFlow {
     Continue,
 }
 
-fn process_commands_and_await_signal(
+fn process_commands_and_await_signal<E>(
     run_context: &mut RunContext,
-    error_callback: &mut dyn FnMut(StreamError),
-) -> Option<ControlFlow> {
+    error_callback: &mut E,
+) -> Option<ControlFlow>
+where
+    E: FnMut(StreamError) + Send + 'static,
+{
     // Process queued commands.
     match process_commands(run_context) {
         Ok(true) => (),
@@ -363,18 +368,23 @@ fn process_commands_and_await_signal(
 }
 
 // The loop for processing pending input data.
-fn process_input(
+fn process_input<T, D, E>(
     stream: &StreamInner,
     capture_client: Audio::IAudioCaptureClient,
-    data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
-    error_callback: &mut dyn FnMut(StreamError),
-) -> ControlFlow {
+    data_callback: &mut D,
+    error_callback: &mut E,
+) -> ControlFlow
+where
+    T: BufferFactory,
+    D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
+    E: FnMut(StreamError) + Send + 'static,
+{
     unsafe {
         // Get the available data in the shared buffer.
-        let mut buffer: *mut u8 = ptr::null_mut();
+        let mut bytes_ptr: *mut u8 = ptr::null_mut();
         let mut flags = mem::MaybeUninit::uninit();
         loop {
-            let mut frames_available = match capture_client.GetNextPacketSize() {
+            let mut frame_count = match capture_client.GetNextPacketSize() {
                 Ok(0) => return ControlFlow::Continue,
                 Ok(f) => f,
                 Err(err) => {
@@ -384,8 +394,8 @@ fn process_input(
             };
             let mut qpc_position: u64 = 0;
             let result = capture_client.GetBuffer(
-                &mut buffer,
-                &mut frames_available,
+                &mut bytes_ptr,
+                &mut frame_count,
                 flags.as_mut_ptr(),
                 ptr::null_mut(),
                 &mut qpc_position,
@@ -401,27 +411,33 @@ fn process_input(
                 Ok(_) => (),
             }
 
-            debug_assert!(!buffer.is_null());
+            debug_assert!(!bytes_ptr.is_null());
 
-            let data = buffer as *mut ();
-            let len = frames_available as usize * stream.bytes_per_frame as usize
-                / stream.sample_format.sample_size();
-            let data = Data::from_parts(data, len, stream.sample_format);
-
-            // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
-            let timestamp = match input_timestamp(stream, qpc_position) {
-                Ok(ts) => ts,
-                Err(err) => {
-                    error_callback(err);
-                    return ControlFlow::Break;
-                }
+            let info = {
+                // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
+                let timestamp = match input_timestamp(stream, qpc_position) {
+                    Ok(ts) => ts,
+                    Err(err) => {
+                        error_callback(err);
+                        return ControlFlow::Break;
+                    }
+                };
+                InputCallbackInfo { timestamp }
             };
-            let info = InputCallbackInfo { timestamp };
-            data_callback(&data, &info);
+
+            let bytes_len = frame_count as usize * stream.bytes_per_frame as usize;
+            let bytes = std::slice::from_raw_parts_mut(bytes_ptr, bytes_len);
+            let sample_format = stream.config.sample_format;
+            let channel_count = stream.config.channels;
+            let buffer =
+                T::create_interleaved_buffer(bytes, sample_format, channel_count, frame_count)
+                    .unwrap_or_else(|| panic!("buffer size or type mismatch"));
+
+            data_callback(buffer, &info);
 
             // Release the buffer.
             let result = capture_client
-                .ReleaseBuffer(frames_available)
+                .ReleaseBuffer(frame_count)
                 .map_err(windows_err_to_cpal_err);
             if let Err(err) = result {
                 error_callback(err);
@@ -432,14 +448,19 @@ fn process_input(
 }
 
 // The loop for writing output data.
-fn process_output(
+fn process_output<T, D, E>(
     stream: &StreamInner,
     render_client: Audio::IAudioRenderClient,
-    data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
-    error_callback: &mut dyn FnMut(StreamError),
-) -> ControlFlow {
+    data_callback: &mut D,
+    error_callback: &mut E,
+) -> ControlFlow
+where
+    T: BufferFactory,
+    D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
+    E: FnMut(StreamError) + Send + 'static,
+{
     // The number of frames available for writing.
-    let frames_available = match get_available_frames(stream) {
+    let frame_count = match get_available_frames(stream) {
         Ok(0) => return ControlFlow::Continue, // TODO: Can this happen?
         Ok(n) => n,
         Err(err) => {
@@ -449,7 +470,7 @@ fn process_output(
     };
 
     unsafe {
-        let buffer = match render_client.GetBuffer(frames_available) {
+        let bytes_ptr = match render_client.GetBuffer(frame_count) {
             Ok(b) => b,
             Err(e) => {
                 error_callback(windows_err_to_cpal_err(e));
@@ -457,24 +478,30 @@ fn process_output(
             }
         };
 
-        debug_assert!(!buffer.is_null());
+        debug_assert!(!bytes_ptr.is_null());
 
-        let data = buffer as *mut ();
-        let len = frames_available as usize * stream.bytes_per_frame as usize
-            / stream.sample_format.sample_size();
-        let mut data = Data::from_parts(data, len, stream.sample_format);
-        let sample_rate = stream.config.sample_rate;
-        let timestamp = match output_timestamp(stream, frames_available, sample_rate) {
-            Ok(ts) => ts,
-            Err(err) => {
-                error_callback(err);
-                return ControlFlow::Break;
-            }
+        let info = {
+            let timestamp = match output_timestamp(stream, frame_count, stream.config.sample_rate) {
+                Ok(ts) => ts,
+                Err(err) => {
+                    error_callback(err);
+                    return ControlFlow::Break;
+                }
+            };
+            OutputCallbackInfo { timestamp }
         };
-        let info = OutputCallbackInfo { timestamp };
-        data_callback(&mut data, &info);
 
-        if let Err(err) = render_client.ReleaseBuffer(frames_available, 0) {
+        let bytes_len = frame_count as usize * stream.bytes_per_frame as usize;
+        let bytes = std::slice::from_raw_parts_mut(bytes_ptr, bytes_len);
+        let sample_format = stream.config.sample_format;
+        let channel_count = stream.config.channels;
+        let buffer =
+            T::create_interleaved_buffer_mut(bytes, sample_format, channel_count, frame_count)
+                .unwrap_or_else(|| panic!("buffer size or type mismatch"));
+
+        data_callback(buffer, &info);
+
+        if let Err(err) = render_client.ReleaseBuffer(frame_count, 0) {
             error_callback(windows_err_to_cpal_err(err));
             return ControlFlow::Break;
         }

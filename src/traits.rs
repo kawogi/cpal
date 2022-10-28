@@ -116,33 +116,6 @@ pub trait DeviceTrait {
     /// The default output stream format for the device.
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError>;
 
-    // /// Create an input stream.
-    // fn build_input_stream<T, D, E>(
-    //     &self,
-    //     config: &StreamConfig,
-    //     mut data_callback: D,
-    //     error_callback: E,
-    //     timeout: Option<Duration>,
-    // ) -> Result<Self::Stream, BuildStreamError>
-    // where
-    //     T: Sample,
-    //     D: FnMut(&[T], &InputCallbackInfo) + Send + 'static,
-    //     E: FnMut(StreamError) + Send + 'static,
-    // {
-    //     self.build_input_stream_raw(
-    //         config,
-    //         move |data, info| {
-    //             data_callback(
-    //                 data.as_slice()
-    //                     .expect("host supplied incorrect sample type"),
-    //                 info,
-    //             )
-    //         },
-    //         error_callback,
-    //         timeout,
-    //     )
-    // }
-
     /// Create an input stream.
     // TODO check whether this indirection to `_raw` is still necessary
     fn build_input_stream<T, D, E>(

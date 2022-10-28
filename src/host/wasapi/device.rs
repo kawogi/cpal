@@ -1,10 +1,11 @@
-use crate::FrameCount;
+use crate::samples::Encoding;
 use crate::{
-    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError,
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
+    BackendSpecificError, BufferSize, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
+use crate::{BufferFactory, FrameCount};
 use once_cell::sync::Lazy;
 use std::ffi::OsString;
 use std::fmt;
@@ -80,19 +81,19 @@ impl DeviceTrait for Device {
         Device::default_output_config(self)
     }
 
-    fn build_input_stream_raw<D, E>(
+    fn build_input_stream_raw<T, D, E>(
         &self,
         config: &StreamConfig,
-        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        T: BufferFactory,
+        D: FnMut(T::Buffer<'_>, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner = self.build_input_stream_raw_inner(config, sample_format)?;
+        let stream_inner = self.build_input_stream_raw_inner(config)?;
         Ok(Stream::new_input(
             stream_inner,
             data_callback,
@@ -100,19 +101,19 @@ impl DeviceTrait for Device {
         ))
     }
 
-    fn build_output_stream_raw<D, E>(
+    fn build_output_stream_raw<T, D, E>(
         &self,
         config: &StreamConfig,
-        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        T: BufferFactory,
+        D: FnMut(T::BufferMut<'_>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner = self.build_output_stream_raw_inner(config, sample_format)?;
+        let stream_inner = self.build_output_stream_raw_inner(config)?;
         Ok(Stream::new_output(
             stream_inner,
             data_callback,
@@ -249,19 +250,29 @@ unsafe fn format_from_waveformatex_ptr(
     fn cmp_guid(a: &GUID, b: &GUID) -> bool {
         (a.data1, a.data2, a.data3, a.data4) == (b.data1, b.data2, b.data3, b.data4)
     }
+
+    #[cfg(target_endian = "little")]
+    const FORMAT_I16: SampleFormat = SampleFormat::I16(<i16 as crate::Sample>::Encoding::LE);
+    #[cfg(target_endian = "little")]
+    const FORMAT_F32: SampleFormat = SampleFormat::F32(<f32 as crate::Sample>::Encoding::LE);
+    #[cfg(target_endian = "big")]
+    const FORMAT_I16: SampleFormat = SampleFormat::I16(<i16 as crate::Sample>::Encoding::BE);
+    #[cfg(target_endian = "big")]
+    const FORMAT_F32: SampleFormat = SampleFormat::F32(<f32 as crate::Sample>::Encoding::BE);
+
     let sample_format = match (
         (*waveformatex_ptr).wBitsPerSample,
         (*waveformatex_ptr).wFormatTag as u32,
     ) {
-        (16, Audio::WAVE_FORMAT_PCM) => SampleFormat::I16,
-        (32, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F32,
+        (16, Audio::WAVE_FORMAT_PCM) => FORMAT_I16,
+        (32, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => FORMAT_F32,
         (n_bits, KernelStreaming::WAVE_FORMAT_EXTENSIBLE) => {
             let waveformatextensible_ptr = waveformatex_ptr as *const Audio::WAVEFORMATEXTENSIBLE;
             let sub = (*waveformatextensible_ptr).SubFormat;
             if n_bits == 16 && cmp_guid(&sub, &KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM) {
-                SampleFormat::I16
+                FORMAT_I16
             } else if n_bits == 32 && cmp_guid(&sub, &Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) {
-                SampleFormat::F32
+                FORMAT_F32
             } else {
                 return None;
             }
@@ -598,7 +609,6 @@ impl Device {
     pub(crate) fn build_input_stream_raw_inner(
         &self,
         config: &StreamConfig,
-        sample_format: SampleFormat,
     ) -> Result<StreamInner, BuildStreamError> {
         unsafe {
             // Making sure that COM is initialized.
@@ -629,7 +639,7 @@ impl Device {
 
             // Computing the format and initializing the device.
             let waveformatex = {
-                let format_attempt = config_to_waveformatextensible(config, sample_format)
+                let format_attempt = config_to_waveformatextensible(config)
                     .ok_or(BuildStreamError::StreamConfigNotSupported)?;
                 let share_mode = Audio::AUDCLNT_SHAREMODE_SHARED;
 
@@ -717,7 +727,6 @@ impl Device {
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
                 config: config.clone(),
-                sample_format,
             })
         }
     }
@@ -725,7 +734,6 @@ impl Device {
     pub(crate) fn build_output_stream_raw_inner(
         &self,
         config: &StreamConfig,
-        sample_format: SampleFormat,
     ) -> Result<StreamInner, BuildStreamError> {
         unsafe {
             // Making sure that COM is initialized.
@@ -742,7 +750,7 @@ impl Device {
 
             // Computing the format and initializing the device.
             let waveformatex = {
-                let format_attempt = config_to_waveformatextensible(config, sample_format)
+                let format_attempt = config_to_waveformatextensible(config)
                     .ok_or(BuildStreamError::StreamConfigNotSupported)?;
                 let share_mode = Audio::AUDCLNT_SHAREMODE_SHARED;
 
@@ -824,7 +832,6 @@ impl Device {
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
                 config: config.clone(),
-                sample_format,
             })
         }
     }
@@ -1007,24 +1014,21 @@ unsafe fn get_audio_clock(
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
 //
 // Returns `None` if the WAVEFORMATEXTENSIBLE does not support the given format.
-fn config_to_waveformatextensible(
-    config: &StreamConfig,
-    sample_format: SampleFormat,
-) -> Option<Audio::WAVEFORMATEXTENSIBLE> {
-    let format_tag = match sample_format {
-        SampleFormat::I16 => Audio::WAVE_FORMAT_PCM,
-        SampleFormat::F32 => KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
+fn config_to_waveformatextensible(config: &StreamConfig) -> Option<Audio::WAVEFORMATEXTENSIBLE> {
+    let format_tag = match config.sample_format {
+        SampleFormat::I16(_) => Audio::WAVE_FORMAT_PCM,
+        SampleFormat::F32(_) => KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
         _ => return None,
     } as u16;
     let channels = config.channels;
     let sample_rate = config.sample_rate.0;
-    let sample_bytes = sample_format.sample_size() as u16;
+    let sample_bytes = config.sample_format.sample_size() as u16;
     let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
     let block_align = channels * sample_bytes;
     let bits_per_sample = 8 * sample_bytes;
-    let cb_size = match sample_format {
-        SampleFormat::I16 => 0,
-        SampleFormat::F32 => {
+    let cb_size = match config.sample_format {
+        SampleFormat::I16(_) => 0,
+        SampleFormat::F32(_) => {
             let extensible_size = mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>();
             let ex_size = mem::size_of::<Audio::WAVEFORMATEX>();
             (extensible_size - ex_size) as u16
@@ -1041,12 +1045,12 @@ fn config_to_waveformatextensible(
         cbSize: cb_size,
     };
 
-    // CPAL does not care about speaker positions, so pass audio ight through.
+    // CPAL does not care about speaker positions, so pass audio right through.
     let channel_mask = KernelStreaming::KSAUDIO_SPEAKER_DIRECTOUT;
 
-    let sub_format = match sample_format {
-        SampleFormat::I16 => KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM,
-        SampleFormat::F32 => Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
+    let sub_format = match config.sample_format {
+        SampleFormat::I16(_) => KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM,
+        SampleFormat::F32(_) => Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
         _ => return None,
     };
     let waveformatextensible = Audio::WAVEFORMATEXTENSIBLE {
